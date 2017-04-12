@@ -1,13 +1,21 @@
-
+--- This file defines the class Game environment of a Toy MDP, meant for experimenting with kuz DQN implimentation in lua
 local toyMdpFramework = {}
 
 -- The GameEnvironment class.
 local gameEnv = torch.class('GameEnvironment')
 
+--@ screen: word to vec embedding of the current state in some fixed size buffer (zero padded or truncated)
+--@ reward: current score - step number
+--@ terminal: dead boolean flag
+--@ game_env: object from class GameEnvironment
+--@ game_actions: array of actions for agent to affect env
+--@ agent: dqn player returned by setup function
+--@ opt: arguments passed from terminal when session is launched.
+
 function gameEnv:__init(_opt)
     print("Initializing toy framework")
     self._state._reward = 0
-    self._state._termination = false
+    self._state.terminal = false
     self._state.observation = {}
     self._step_limit = 100
     self._actions= {"LEFT","RIGHT"}
@@ -15,7 +23,7 @@ function gameEnv:__init(_opt)
     self._step_penalty = -1
     return self
 end
-
+-- game = {{"actions" = {2,3},"go left",5},{1,2,"go right",0},{2,3,"go left",5}}
 
 function gameEnv:_updateState(frame, reward, terminal)
     self._state.reward       = reward
@@ -28,25 +36,14 @@ end
 function gameEnv:getState()
     -- grab the screen again only if the state has been updated in the meantime
     if not self._state.observation then
-        self._state.observation = self:_getScreen()
+        self._state.observation = self:_getScreen() -- replace with get current state descriptor vord2vec method
     end
-    -- why not call api_agent's getreward and getterminal functions here?
-
     return self._state.observation, self._state.reward, self._state.terminal
 end
 
 
 function gameEnv:reset(_env, _params, _gpu)
-    local params = _params or {useRGB=true}
-    -- if no game name given use previous name if available
-
-    self._actions   = self:getActions()
-
     -- start the game
-    if self.verbose > 0 then
-        print('\nPlaying: HFO!')
-    end
-
     self._state = self._state or {}
     self:_updateState(self:_step(0))
     self:getState()
