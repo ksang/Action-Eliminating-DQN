@@ -19,7 +19,7 @@ function gameEnv:__init(_opt)
     self._state.observation = {}
     self._step_limit = 100
     self._actions= {LEFT = 1,RIGHT = 2}
-    self._current_state = 0
+    self._current_stage = 1
     self._step_penalty = -1
     return self
 end
@@ -41,16 +41,10 @@ function gameEnv:getState()
     return self._state.observation, self._state.reward, self._state.terminal -- frame,reward,terminal
 end
 
---[[ Function is called to reset the game to stage 0 with score 0]]
-function gameEnv:reset()
-    -- start the game
-    self:_updateState(nil,0,false) 
-    self:getState() -- update the 
-    return self
-end
 function gameEnv:newGame()
-    self:reset()
-    return 
+    self:_updateState({},0,false)
+    self._current_stage = 1
+    return self:getState()
 end
 function gameEnv:step(action, training)
     -- accumulate rewards over actrep action repeats
