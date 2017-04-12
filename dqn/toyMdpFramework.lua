@@ -18,17 +18,18 @@ function gameEnv:__init(_opt)
     self._state.terminal = false
     self._state.observation = {}
     self._step_limit = 100
-    self._actions= {"LEFT","RIGHT"}
+    self._actions= {"LEFT" : 1,"RIGHT" : 2}
     self._current_state = 0
     self._step_penalty = -1
     return self
 end
--- game = {{"actions" = {2,3},"go left",5},{1,2,"go right",0},{2,3,"go left",5}}
+-- be like : game= {{next_stage = {3,2,3}, descriptor = "bla go right" ,reward= 0,terminal = false },{next_stage = {3,2,3}, descriptor = "bla go left" ,reward= 0,terminal = false }}
+
 
 function gameEnv:_updateState(frame, reward, terminal)
     self._state.reward       = reward
     self._state.terminal     = terminal
-    self._state.observation  = frame
+    self._state.observation  = frame -- in our case frame is the state string descriptor we shold store here the word2vec rep
     return self
 end
 
@@ -45,10 +46,82 @@ end
 function gameEnv:reset(_env, _params, _gpu)
     -- start the game
     self._state = self._state or {}
-    self:_updateState(self:_step(0))
+    self:_updateState(nil,0,false) 
     self:getState()
     return self
 end
+
+function gameEnv:step(action, training)
+    -- accumulate rewards over actrep action repeats
+    local cumulated_reward = 0
+    local frame, reward, terminal
+    for i=1,self._actrep do
+        -- Take selected action
+        -- maybe change to directly call api_agent's agentStep
+        frame, reward, terminal = self:_step(action)
+
+        -- accumulate instantaneous reward
+        cumulated_reward = cumulated_reward + reward
+
+        -- game over, no point to repeat current action
+        if terminal then break end
+    end
+    self:_updateState(frame, cumulated_reward, terminal)
+    return self:getState()
+end
+
+
+--[[ Function advances the emulator state until a new game starts and returns
+this state. The new game may be a different one, in the sense that playing back
+the exact same sequence of actions will result in different outcomes.
+]]
+function gameEnv:newGame()
+    local obs, reward, terminal
+    terminal = self._state.terminal
+    while not terminal do
+        obs, reward, terminal = self:_randomStep()
+    end
+    -- take one null action in the new game
+    return self:_updateState(self:_step(0)):getState()
+end
+
+
+
+--[[ Function returns the number total number of pixels in one frame/observation
+from the current game.
+]]
+function gameEnv:nObsFeature()
+    -- return self.api_agent.getStateDims()
+    local agent
+    if self.onenet then
+      agent = self.shooter_agent
+    else
+      agent = self.api_agent
+    end
+    return agent.height*agent.width
+end
+
+
+-- Function returns a table with valid actions in the current game.
+function gameEnv:getActions()
+  if self.onenet then
+    -- one network controlling two players
+    local sp_actions = self.shooter_agent.getActions()
+    local ind = 0
+    local actions = {0}
+    for i = 1, #sp_actions do
+      for j = 1, #sp_actions do
+        table.insert(self.d_actions, {sp_actions[i], sp_actions[j]})
+        table.insert(actions, #actions)
+      end
+    end
+    return actions
+  else
+    -- Regular single player
+    return self.api_agent.getActions()
+  end
+end
+
 
 
 -- Function plays `action` in the game and return game state.
@@ -121,93 +194,6 @@ end
 -- Function plays one random action in the game and return game state.
 function gameEnv:_randomStep()
     return self:_step(self._actions[torch.random(#self._actions)])
-end
-
-
-function gameEnv:step(action, training)
-    -- accumulate rewards over actrep action repeats
-    local cumulated_reward = 0
-    local frame, reward, terminal
-    for i=1,self._actrep do
-        -- Take selected action
-        -- maybe change to directly call api_agent's agentStep
-        frame, reward, terminal = self:_step(action)
-
-        -- accumulate instantaneous reward
-        cumulated_reward = cumulated_reward + reward
-
-        -- game over, no point to repeat current action
-        if terminal then break end
-    end
-    self:_updateState(frame, cumulated_reward, terminal)
-    return self:getState()
-end
-
-
---[[ Function advances the emulator state until a new game starts and returns
-this state. The new game may be a different one, in the sense that playing back
-the exact same sequence of actions will result in different outcomes.
-]]
-function gameEnv:newGame()
-    local obs, reward, terminal
-    terminal = self._state.terminal
-    while not terminal do
-        obs, reward, terminal = self:_randomStep()
-    end
-    -- take one null action in the new game
-    return self:_updateState(self:_step(0)):getState()
-end
-
-
---[[ Function advances the emulator state until a new (random) game starts and
-returns this state.
-]]
-function gameEnv:nextRandomGame(k)
-    local obs, reward, terminal = self:newGame()
-    k = k or torch.random(self._random_starts)
-    for i=1,k-1 do
-        obs, reward, terminal = self:_step(0)
-        if terminal then
-            print(string.format('WARNING: Terminal signal received after %d 0-steps', i))
-        end
-    end
-    return self:_updateState(self:_step(0)):getState()
-end
-
-
---[[ Function returns the number total number of pixels in one frame/observation
-from the current game.
-]]
-function gameEnv:nObsFeature()
-    -- return self.api_agent.getStateDims()
-    local agent
-    if self.onenet then
-      agent = self.shooter_agent
-    else
-      agent = self.api_agent
-    end
-    return agent.height*agent.width
-end
-
-
--- Function returns a table with valid actions in the current game.
-function gameEnv:getActions()
-  if self.onenet then
-    -- one network controlling two players
-    local sp_actions = self.shooter_agent.getActions()
-    local ind = 0
-    local actions = {0}
-    for i = 1, #sp_actions do
-      for j = 1, #sp_actions do
-        table.insert(self.d_actions, {sp_actions[i], sp_actions[j]})
-        table.insert(actions, #actions)
-      end
-    end
-    return actions
-  else
-    -- Regular single player
-    return self.api_agent.getActions()
-  end
 end
 
 
