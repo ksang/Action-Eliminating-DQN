@@ -18,7 +18,7 @@ function gameEnv:__init(_opt)
     self._state.terminal = false
     self._state.observation = {}
     self._step_limit = 100
-    self._actions= {"LEFT" : 1,"RIGHT" : 2}
+    self._actions= {LEFT = 1,RIGHT = 2}
     self._current_state = 0
     self._step_penalty = -1
     return self
