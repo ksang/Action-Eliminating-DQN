@@ -1,6 +1,54 @@
 --- This file defines the class Game environment of a Toy MDP, meant for experimenting with kuz DQN implimentation in lua
 local toyMdpFramework = {}
 
+symbols = {}
+symbol_mapping = {}
+sentence_size = 4
+start_index = 1
+
+function parseLine( list_words, start_index)
+	-- parse line to update symbols and symbol_mapping
+	-- IMP: make sure we're using simple english - ignores punctuation, etc.
+	local sindx
+	start_index = start_index or 1
+	for i=start_index,#list_words do
+		word = split(list_words[i], "%a+")[1]
+		word = word:lower()
+		if symbol_mapping[word] == nil then
+			sindx = #symbols + 1
+			symbols[sindx] = word
+			symbol_mapping[word] = sindx
+		end
+	end
+end
+
+
+function text_embedding(input_text)
+	local matrix = torch.zeros(sentence_size,#symbols)
+	for j, line in pairs(input_text) do
+		line = input_text[j]
+		local list_words = split(line, "%a+")
+    -- check input_text is not longer than sentence_size
+    if #list_words <= sentence_size then
+    		for i=1,sentence_size do
+    			local word = list_words[i]
+    			word = word:lower()
+    			--ignore words not in vocab
+    			if symbol_mapping[word] then
+    				matrix[(i-1)*(#symbols) + symbol_mapping[word]] = 1
+    			else
+    				print(word .. ' not in vocab')
+    			end
+
+    		end
+    else
+      print('number of words in sentence is not' .. sentence_size)
+    end
+	end
+	return matrix
+end
+
+
 -- The GameEnvironment class.
 local gameEnv = torch.class('GameEnvironment')
 
