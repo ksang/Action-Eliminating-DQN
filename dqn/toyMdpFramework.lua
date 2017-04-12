@@ -14,7 +14,7 @@ local gameEnv = torch.class('GameEnvironment')
 
 function gameEnv:__init(_opt)
     print("Initializing toy framework")
-    self._state._reward = 0
+    self._state.reward = 0
     self._state.terminal = false
     self._state.observation = {}
     self._step_limit = 100
@@ -23,9 +23,9 @@ function gameEnv:__init(_opt)
     self._step_penalty = -1
     return self
 end
--- be like : game= {{next_stage = {3,2,3}, descriptor = "bla go right" ,reward= 0,terminal = false },{next_stage = {3,2,3}, descriptor = "bla go left" ,reward= 0,terminal = false }}
+-- be like : game= {{next_stage = {3,2}, descriptor = "bla go right" ,reward= 0,terminal = false },{next_stage = {3,2,3}, descriptor = "bla go left" ,reward= 0,terminal = false }}
 
-
+--[[ this method ]]
 function gameEnv:_updateState(frame, reward, terminal)
     self._state.reward       = reward
     self._state.terminal     = terminal
@@ -33,24 +33,25 @@ function gameEnv:_updateState(frame, reward, terminal)
     return self
 end
 
--- this function needs to return a fixed sized matrix where each column is a word2vec rep of a word from the current state description (zeropadded)
 function gameEnv:getState()
     -- grab the screen again only if the state has been updated in the meantime
     if not self._state.observation then
         self._state.observation = self:_getScreen() -- replace with get current state descriptor vord2vec method
     end
-    return self._state.observation, self._state.reward, self._state.terminal
+    return self._state.observation, self._state.reward, self._state.terminal -- frame,reward,terminal
 end
 
-
-function gameEnv:reset(_env, _params, _gpu)
+--[[ Function is called to reset the game to stage 0 with score 0]]
+function gameEnv:reset()
     -- start the game
-    self._state = self._state or {}
     self:_updateState(nil,0,false) 
-    self:getState()
+    self:getState() -- update the 
     return self
 end
-
+function gameEnv:newGame()
+    self:reset()
+    return 
+end
 function gameEnv:step(action, training)
     -- accumulate rewards over actrep action repeats
     local cumulated_reward = 0
@@ -71,22 +72,6 @@ function gameEnv:step(action, training)
 end
 
 
---[[ Function advances the emulator state until a new game starts and returns
-this state. The new game may be a different one, in the sense that playing back
-the exact same sequence of actions will result in different outcomes.
-]]
-function gameEnv:newGame()
-    local obs, reward, terminal
-    terminal = self._state.terminal
-    while not terminal do
-        obs, reward, terminal = self:_randomStep()
-    end
-    -- take one null action in the new game
-    return self:_updateState(self:_step(0)):getState()
-end
-
-
-
 --[[ Function returns the number total number of pixels in one frame/observation
 from the current game.
 ]]
@@ -104,23 +89,8 @@ end
 
 -- Function returns a table with valid actions in the current game.
 function gameEnv:getActions()
-  if self.onenet then
-    -- one network controlling two players
-    local sp_actions = self.shooter_agent.getActions()
-    local ind = 0
-    local actions = {0}
-    for i = 1, #sp_actions do
-      for j = 1, #sp_actions do
-        table.insert(self.d_actions, {sp_actions[i], sp_actions[j]})
-        table.insert(actions, #actions)
-      end
-    end
-    return actions
-  else
-    -- Regular single player
-    return self.api_agent.getActions()
+      return self.actions
   end
-end
 
 
 
