@@ -80,7 +80,11 @@ function gameEnv:__init(_opt)
     self._actions= {LEFT = 1,RIGHT = 2}
     self._current_stage = 1
     self._step_penalty = -1
-    
+    -- build vocab
+	for i=1, #game do
+		parseLine(game[i].descriptor)
+		end
+	end
   return self
 end
 
