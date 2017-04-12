@@ -6,21 +6,13 @@ local gameEnv = torch.class('GameEnvironment')
 
 function gameEnv:__init(_opt)
     print("Initializing toy framework")
-    self._current_reward = 0
-    self._termination = false
+    self._state._reward = 0
+    self._state._termination = false
+    self._state.observation = {}
     self._step_limit = 100
     self._actions= {"LEFT","RIGHT"}
     self._current_state = 0
     self._step_penalty = -1
-    local _opt = _opt or {}
-    self.vector_buffer = ""
-    
-    -- check
-    -- defaults to emulator speed
-    self.verbose        = _opt.verbose or 0
-    self._actrep        = _opt.actrep or 1
-    self._random_starts = _opt.random_starts or 1
-    self:reset(_opt.env, _opt.env_params, _opt.gpu)
     return self
 end
 
@@ -32,7 +24,7 @@ function gameEnv:_updateState(frame, reward, terminal)
     return self
 end
 
-
+-- this function needs to return a fixed sized matrix where each column is a word2vec rep of a word from the current state description (zeropadded)
 function gameEnv:getState()
     -- grab the screen again only if the state has been updated in the meantime
     if not self._state.observation then
