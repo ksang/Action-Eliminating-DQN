@@ -53,7 +53,7 @@ end
 local gameEnv = torch.class('GameEnvironment')
 local game = {
     {next_stage = {1,2}, descriptor = "go left" ,reward= 0,terminal = false },        -- 1
-    {next_stage = {8,3}, descriptor = "don't go left" ,reward= 0,terminal = false },  -- 2 
+    {next_stage = {8,3}, descriptor = "don't go left" ,reward= 0,terminal = false },  -- 2
     {next_stage = {2,6}, descriptor = "don't go right" ,reward= 0,terminal = false }, -- 3
     {next_stage = {6,5}, descriptor = "go right" ,reward= 0,terminal = false },       -- 4
     {next_stage = {1,6}, descriptor = "go left" ,reward= 0,terminal = false },        -- 5
@@ -84,7 +84,6 @@ function gameEnv:__init(_opt)
 	for i=1, #game do
 		parseLine(game[i].descriptor)
 		end
-	end
   return self
 end
 
@@ -108,11 +107,11 @@ end
 
 function gameEnv:step(action, training)
   local next_stage, reward, terminal, string
-    
+
   next_stage = game[stage].next_stage[action]
   reward = game[next_stage].reward + this._step_penalty
-  terminal = game[next_stage].terminal   
-  string = game[next_stage].descriptor 
+  terminal = game[next_stage].terminal
+  string = game[next_stage].descriptor
   self:_updateState(string, reward, terminal)
   return self:getState()
 end
