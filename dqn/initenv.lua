@@ -117,7 +117,7 @@ function setup(_opt)
 
     local gameEnv = framework.GameEnvironment(opt)
     local gameActions = gameEnv:getActions()
-
+    print("@DEBUG initenv - game actions:", table.unpack(gameActions))
     -- agent options
     _opt.agent_params.actions   = gameActions
     _opt.agent_params.gpu       = _opt.gpu

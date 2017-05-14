@@ -6,7 +6,7 @@ See LICENSE file for full terms of limited license.
 
 require 'convnet'
 
-return function(args)
+--[[return function(args)
     args.n_units        = {32, 64, 64}
     args.filter_size    = {8, 4, 3}
     args.filter_stride  = {4, 2, 1}
@@ -14,5 +14,16 @@ return function(args)
     args.nl             = nn.Rectifier
 
     return create_network(args)
-end
+end]]
 
+return function(args)
+  --FIXME history was set in run_gpu to 4 via opt
+  local network = nn.Sequential()
+  network:add(nn.Reshape(4*5*5))
+  network:add(nn.Linear(100,10))
+  network:add(nn.Linear(10,2))
+  print('hi this is convnet atari 3 !!! \n')
+  print(network:size())
+  print('hi this is convnet atari 3  second time!!! \n')
+    return network
+end

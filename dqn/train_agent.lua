@@ -47,6 +47,7 @@ cmd:option('-gpu', -1, 'gpu flag')
 cmd:text()
 
 local opt = cmd:parse(arg)
+print('done')
 
 --- General setup.
 local game_env, game_actions, agent, opt = setup(opt)
@@ -74,15 +75,15 @@ local total_reward
 local nrewards
 local nepisodes
 local episode_reward
-
 local screen, reward, terminal = game_env:getState()
-
 print("Iteration ..", step)
 local win = nil
 while step < opt.steps do
     step = step + 1
     local action_index = agent:perceive(reward, screen, terminal)
-
+    --print ("@DEBUG: train_agent action index is",action_index)
+    --print ("@DEBUG: train_agent game actions is",table.unpack(game_actions))
+    --print ("@DEBUG: train_agent game_actions[action_index] is",game_actions[action_index])
     -- game over? get next game!
     if not terminal then
         screen, reward, terminal = game_env:step(game_actions[action_index], true)

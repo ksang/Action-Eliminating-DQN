@@ -174,8 +174,10 @@ function trans:concatFrames(index, use_recent)
     else
         s, t = self.s, self.t
     end
-
+    --print("@DEBUG: concatFrames s\n", table.unpack(s))
+    --print("@DEBUG: concatFrames t\n", table.unpack(t))
     local fullstate = s[1].new()
+    --print("@DEBUG: concatFrames fullstate", fullstate)
     fullstate:resize(self.histLen, unpack(s[1]:size():totable()))
 
     -- Zero out frames from all but the most recent episode.
@@ -202,10 +204,16 @@ function trans:concatFrames(index, use_recent)
     if self.zeroFrames == 0 then
         episode_start = 1
     end
-
+    --print("@DEBUG: transition table copy")
     -- Copy frames from the current episode.
     for i=episode_start,self.histLen do
+        --print("@DEBUG: transition table self.histIndices",table.unpack(self.histIndices))
+        --print("@DEBUG: iteration",i)
+        --print("@DEBUG: transition table fullstate\n",fullstate)
+        --print("@DEBUG: transition table s[index+self.histIndices[i]-1]\n",s[index+self.histIndices[i]-1])
         fullstate[i]:copy(s[index+self.histIndices[i]-1])
+        --print("@DEBUG: transition table fullstate after copy\n",fullstate)
+
     end
 
     return fullstate
@@ -273,6 +281,9 @@ function trans:add(s, a, r, term)
     assert(s, 'State cannot be nil')
     assert(a, 'Action cannot be nil')
     assert(r, 'Reward cannot be nil')
+    --print("@DEBUG: transition table add state in\n", s)
+    --print("@DEBUG: transition table add self state\n", self.s:size())
+
 
     -- Incremenet until at full capacity
     if self.numEntries < self.maxSize then

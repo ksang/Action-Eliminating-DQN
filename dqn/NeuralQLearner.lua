@@ -14,7 +14,8 @@ local nql = torch.class('dqn.NeuralQLearner')
 function nql:__init(args)
     self.state_dim  = args.state_dim -- State dimensionality.
     self.actions    = args.actions
-    self.n_actions  = #self.actions
+    self.n_actions  = 2
+    --print(table.unpack(self.actions))
     self.verbose    = args.verbose
     self.best       = args.best
 
@@ -53,7 +54,7 @@ function nql:__init(args)
     self.gpu            = args.gpu
 
     self.ncols          = args.ncols or 1  -- number of color channels in input
-    self.input_dims     = args.input_dims or {self.hist_len*self.ncols, 84, 84}
+    self.input_dims     = args.input_dims or {self.hist_len*self.ncols, 5, 5}
     self.preproc        = args.preproc  -- name of preprocessing network
     self.histType       = args.histType or "linear"  -- history type to use
     self.histSpacing    = args.histSpacing or 1
@@ -87,6 +88,7 @@ function nql:__init(args)
         print('Creating Agent Network from ' .. self.network)
         self.network = err
         self.network = self:network()
+
     end
 
     if self.gpu and self.gpu >= 0 then
@@ -169,11 +171,15 @@ end
 
 function nql:preprocess(rawstate)
     if self.preproc then
+        print("@debug preprocess",self.preproc:forward(rawstate:float())
+                    :clone():reshape(self.state_dim))
+
         return self.preproc:forward(rawstate:float())
                     :clone():reshape(self.state_dim)
     end
-
+    print("@debug no preprocess",rawstate)
     return rawstate
+
 end
 
 
@@ -299,7 +305,8 @@ end
 
 function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     -- Preprocess state (will be set to nil if terminal)
-    local state = self:preprocess(rawstate):float()
+    --local state = self:preprocess(rawstate):float()
+    local state = rawstate:float()
     local curState
 
     if self.max_reward then
@@ -313,8 +320,14 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     end
 
     self.transitions:add_recent_state(state, terminal)
+    --print("@DEBUG: rawstate:\n",rawstate)
+    --for i,j in pairs(self.transitions) do
+    --  print("@DEBUG:",i,j)
+    --end
+    --print("@DEBUG: NQL self transitions",self.transitions)
 
     local currentFullState = self.transitions:get_recent()
+    --print("@DEBUG: currentFullState:\n",currentFullState)
 
     --Store transition s, a, r, s'
     if self.lastState and not testing then
@@ -328,9 +341,9 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
 
     curState= self.transitions:get_recent()
     curState = curState:resize(1, unpack(self.input_dims))
-
     -- Select action
     local actionIndex = 1
+    --print ("@DEBUG: agent state dump: \n",curState)
     if not terminal then
         actionIndex = self:eGreedy(curState, testing_ep)
     end
@@ -415,6 +428,7 @@ end
 function nql:createNetwork()
     local n_hid = 128
     local mlp = nn.Sequential()
+    print("@debug create network")
     mlp:add(nn.Reshape(self.hist_len*self.ncols*self.state_dim))
     mlp:add(nn.Linear(self.hist_len*self.ncols*self.state_dim, n_hid))
     mlp:add(nn.Rectifier())
