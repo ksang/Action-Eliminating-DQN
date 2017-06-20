@@ -1,5 +1,5 @@
 require('toyMdpFramework')
-parseLine("go left right dont win")
+parseLine("Go Left Right Dont Win")
 print("symbols are ",symbols)
 print("symbol_mapping is ",symbol_mapping)
 opt={}

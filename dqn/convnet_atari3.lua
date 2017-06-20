@@ -19,11 +19,8 @@ end]]
 return function(args)
   --FIXME history was set in run_gpu to 4 via opt
   local network = nn.Sequential()
-  network:add(nn.Reshape(4*5*5))
-  network:add(nn.Linear(100,10))
+  network:add(nn.Reshape(4*3*300)) --@DEBUG_DIM(hist*state (sentence) size*word representation)
+  network:add(nn.Linear(4*3*300,10)) --@DEBUG_DIM(hist*state (sentence) size*word representation)
   network:add(nn.Linear(10,2))
-  print('hi this is convnet atari 3 !!! \n')
-  print(network:size())
-  print('hi this is convnet atari 3  second time!!! \n')
     return network
 end

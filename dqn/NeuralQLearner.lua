@@ -54,7 +54,7 @@ function nql:__init(args)
     self.gpu            = args.gpu
 
     self.ncols          = args.ncols or 1  -- number of color channels in input
-    self.input_dims     = args.input_dims or {self.hist_len*self.ncols, 5, 5}
+    self.input_dims     = args.input_dims or {self.ncols,args.state_rows, self.hist_len*args.state_cols}
     self.preproc        = args.preproc  -- name of preprocessing network
     self.histType       = args.histType or "linear"  -- history type to use
     self.histSpacing    = args.histSpacing or 1
@@ -171,13 +171,12 @@ end
 
 function nql:preprocess(rawstate)
     if self.preproc then
-        print("@debug preprocess",self.preproc:forward(rawstate:float())
-                    :clone():reshape(self.state_dim))
+        --print("@debug preprocess",self.preproc:forward(rawstate:float()):clone():reshape(self.state_dim))
 
         return self.preproc:forward(rawstate:float())
                     :clone():reshape(self.state_dim)
     end
-    print("@debug no preprocess",rawstate)
+    --print("@debug no preprocess",rawstate)
     return rawstate
 
 end
@@ -205,7 +204,7 @@ function nql:getQUpdate(args)
     else
         target_q_net = self.network
     end
-
+    print(s2:size())
     -- Compute max_a Q(s_2, a).
     q2_max = target_q_net:forward(s2):float():max(2)
 
