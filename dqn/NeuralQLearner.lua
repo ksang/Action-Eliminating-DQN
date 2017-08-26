@@ -14,7 +14,7 @@ local nql = torch.class('dqn.NeuralQLearner')
 function nql:__init(args)
     self.state_dim  = args.state_dim -- State dimensionality.
     self.actions    = args.actions
-    self.n_actions  = 2
+    self.n_actions  = #args.actions
     --print(table.unpack(self.actions))
     self.verbose    = args.verbose
     self.best       = args.best
@@ -204,7 +204,7 @@ function nql:getQUpdate(args)
     else
         target_q_net = self.network
     end
-    print(s2:size())
+    --print(s2:size())
     -- Compute max_a Q(s_2, a).
     q2_max = target_q_net:forward(s2):float():max(2)
 
