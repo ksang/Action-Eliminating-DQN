@@ -19,8 +19,8 @@ end]]
 return function(args)
   --FIXME history was set in run_gpu to 4 via opt
   local network = nn.Sequential()
-  network:add(nn.Reshape(4*3*300)) --@DEBUG_DIM(hist*state (sentence) size*word representation)
-  network:add(nn.Linear(4*3*300,10)) --@DEBUG_DIM(hist*state (sentence) size*word representation)
-  network:add(nn.Linear(10,2))
+  network:add(nn.Reshape(4*65*300)) --@DEBUG_DIM(hist*state (sentence) size*word representation)
+  network:add(nn.Linear(4*65*300,100)) --@DEBUG_DIM(hist*state (sentence) size*word representation)
+  network:add(nn.Linear(100,10))
     return network
 end
