@@ -1,8 +1,8 @@
 #!/bin/bash
 ENV=$1
-FRAMEWORK="toyMdpFramework"
+FRAMEWORK="ZorkFramework"
 
-game_path=$PWD"/roms/"
+game_path=$PWD"/dqn/zork"
 #env_params="useRGB=true"
 agent="NeuralQLearner"
 n_replay=1
@@ -11,28 +11,28 @@ update_freq=4
 actrep=1
 discount=0.99
 seed=1
-learn_start=2000 #5000
+learn_start=1000 #50000
 pool_frms_type="\"max\""
 pool_frms_size=2
 initial_priority="false"
-replay_memory=1000000
+replay_memory=5000 #1000000
 eps_end=0.1
 eps_endt=replay_memory
-lr=0.000025
+lr=0.00025
 agent_type="DQN3_0_1"
 preproc_net="\"net_downsample_2x_full_y\""
 agent_name=$agent_type"_"$1"_FULL_Y"
-state_rows=3  #@NOTE we added the folowing 2 arguments to allow neural q learner know what are the input dimms
+state_rows=65  #@NOTE we added the folowing 2 arguments to allow neural q learner know what are the input dimms
 state_cols=300
-state_dim=900 #@DEBUG_DIM(state(sentence)size*word representation) => this is not really needed but we fail without it
+state_dim=19500 #@DEBUG_DIM(state(sentence)size*word representation) => this is not really needed but we fail without it
 ncols=1 # number of color channels we only have 1
 #nrows=3
-agent_params="lr="$lr",ep=1,ep_end="$eps_end",ep_endt="$eps_endt",discount="$discount",hist_len=4,learn_start="$learn_start",replay_memory="$replay_memory",update_freq="$update_freq",n_replay="$n_replay",network="$netfile",preproc="$preproc_net",state_dim="$state_dim",minibatch_size=32,rescale_r=1,ncols="$ncols",state_rows="$state_rows",state_cols="$state_cols",bufferSize=512,valid_size=500,target_q=10000,clip_delta=1,min_reward=-1,max_reward=10"
-steps=50000000
-eval_freq=2500
-eval_steps=5000
-prog_freq=1000
-save_freq=1250
+agent_params="lr="$lr",ep=1,ep_end="$eps_end",ep_endt="$eps_endt",discount="$discount",hist_len=4,learn_start="$learn_start",replay_memory="$replay_memory",update_freq="$update_freq",n_replay="$n_replay",network="$netfile",preproc="$preproc_net",state_dim="$state_dim",minibatch_size=32,rescale_r=1,ncols="$ncols",state_rows="$state_rows",state_cols="$state_cols",bufferSize=512,valid_size=500,target_q=10000,clip_delta=1,min_reward=-1,max_reward=100"
+steps=1000000 #50000000
+eval_freq=1250 #250000 # can change ratio between steps and eval_freq to get more samples
+eval_steps=2500 #125000
+prog_freq=200 #10000
+save_freq=2500 #125000
 gpu=0
 random_starts=0
 pool_frms="type="$pool_frms_type",size="$pool_frms_size
