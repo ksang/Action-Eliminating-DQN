@@ -12,7 +12,7 @@ local start_index = 1
 -- source:
 --[[this function reads a whole file and returns it as a stringToUpper
 		used only on small files genereted by the game for each step]]
-local function read_file(path)
+function read_file(path)
     local file = io.open(path, "r") -- r read mode and b binary mode
     if file == nil then
 	    print("error: file not found")
@@ -32,16 +32,19 @@ function split(s, pattern)
 end
 
 --                                Word2Vec
+
 function textEmbedding(line)
 	-- 300 is size of word2vec embbeding
 	local matrix = torch.zeros(sentence_size,300)
 	local input_text = string.split(line, " ")
+
 	for i=1 ,#input_text do
 		-- check input_text is not longer than sentence_size, line was truncated
-	  if i > sentence_size then
-			--print('number of words in sentence is larger than' .. sentence_size)
+	  if i > sentence_size - reserved_for_inventory then
+			--print('number of words in sentence is larger than ' .. sentence_size - reserved_for_inventory)
 			break
 	  end
+
 	  local word = input_text[i]
 	  local normlized_word = split(word, "%a+")[1] --TODO explain
 		--ignore words not in vocab
@@ -52,7 +55,41 @@ function textEmbedding(line)
 		print(normlized_word .. ' not in vocab')
 	  end
 	end
+
+
+	-- append player inventory
+	local inventory_text = read_file(zork.zorkInventory())
+	-- check for empty inventory
+	--print (inventory_text)
+	if inventory_text:match("You are empty handed.\n") then return matrix end
+	-- split inventory text and preform embedding
+	inventory_text = string.split(inventory_text, " ")
+	--print (inventory_text)
+	--[[ 3 is the number of words in common to all inventory messages so we ignore them.
+	"You are carrying:\n"]]
+	for i=1 ,(#inventory_text - 3) do
+		-- check input_text is not longer than sentence_size, line was truncated
+	  --print ("inventory index " .. i)
+	  if i > reserved_for_inventory then
+		--print('number of items in sentence is larger than' .. sentence_size - reserved_for_inventory)
+	    break
+	  end
+
+	 word = input_text[i + 3]
+	 if word == nil then goto continue end  -- skip empty spaces
+	 normlized_word = split(word, "%a+")[1] --TODO explain
+	  --ignore words not in vocab
+	  normlized_vec = w2vutils:word2vec(normlized_word)
+  	  if normlized_vec then
+		matrix[sentence_size - reserved_for_inventory + i] = normlized_vec
+	    else
+		print('warning ' .. normlized_word .. ' not in vocab')
+	  end
+	::continue::
+	end
+
 	return matrix
+
 end
 
 local zork = require ('zork')
@@ -70,10 +107,10 @@ function gameEnv:__init(_opt)
     print("@DEBUG Initializing zork framework")
 		--init game and define static actions
 		self._state={}
-		self._step_limit = 30
-    self.tot_steps =0
-    self.tot_inits =0
-    self:newGame()
+		self._step_limit = 100
+    		self.tot_steps =0
+    		self.tot_inits =0
+    		self:newGame()
 
 		self._actions = {
 
@@ -86,13 +123,13 @@ function gameEnv:__init(_opt)
 			{action = "climb tree",desc = "climb up the large tree"},
 			{action = "take egg",desc = "take valuable item"},
 			{action = "open egg",desc = "try to open item"},
-      {action = "look",desc = "observe the environment"}
+      			{action = "look",desc = "observe the environment"}
 			--[[ TODO consider adding special actions where the first agent chooses to interact with, may need to ensure this is always choosen in some higher probability when training]]--
 		}
 		--define step cost
 		self._step_penalty = -1
-		self._terminal_string = "There is no obvious way to open the egg.\n"
-  return self
+		self._terminal_string = "There is no obvious way to open the egg.\0"
+  	return self
 end
 
 --[[ this helper method assigns the state arguments ]]
@@ -111,8 +148,10 @@ function gameEnv:newGame()
   self.tot_inits = self.tot_inits+1
   --print("start new game number",self.tot_inits)
 	local result_file_name = zork.zorkInit()
-	self:_updateState(read_file(result_file_name),0,false) --TODO concat inventory
-  return self:getState()
+	local result_string = read_file(result_file_name)
+	self:_updateState(result_string,0,false) --TODO concat inventory
+  s,r,t =  self:getState()
+  return s,r,t, result_string
 end
 
 function gameEnv:nextRandomGame()
@@ -124,7 +163,7 @@ function gameEnv:step(action, training)
   local current_score, previous_score, previous_lives, reward, terminal
 	previous_score = zork.zorkGetScore()
 	previous_lives = zork.zorkGetLives()
-	--print ("@DEBUG selected action:" , action.action )
+	-- print ("@DEBUG selected action:" , action.action )
 	local result_file_name = zork.zorkGameStep(action.action,false)
 	current_score = zork.zorkGetScore()
 	reward = current_score - previous_score + self._step_penalty
@@ -138,10 +177,10 @@ function gameEnv:step(action, training)
 	end
 
 	-- check for terminal state
-	if result_string == self._terminal_string then
+	if result_string:match(self._terminal_string) then
 		terminal = true
 		reward = reward + 100 -- give additional reward
-	  --print("@DEBUG: goal state reached in",zork.zorkGetNumMoves(),"steps")
+	  print("@DEBUG: goal state reached in",zork.zorkGetNumMoves(),"steps")
 	end
 	-- early termination
 	if zork.zorkGetNumMoves() > self._step_limit - 1 then
@@ -151,7 +190,8 @@ function gameEnv:step(action, training)
    print("total new games started",self.tot_inits,"total steps", self.tot_steps)
  end]]
 	self:_updateState(result_string, reward, terminal)
-  	return self:getState()
+	s, r,t =   	self:getState()
+	return s,r,t , result_string
 end
 
 --[[ Function returns the number total number of pixels in one frame/observation
