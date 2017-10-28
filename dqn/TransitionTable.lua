@@ -53,6 +53,8 @@ function trans:__init(args)
 
     self.s = torch.ByteTensor(self.maxSize, self.stateDim):fill(0)
     self.a = torch.LongTensor(self.maxSize):fill(0)
+    self.a_o = torch.LongTensor(self.maxSize):fill(0)
+    self.bad_command  = torch.LongTensor(self.maxSize):fill(0)
     self.r = torch.zeros(self.maxSize)
     self.t = torch.ByteTensor(self.maxSize):fill(0)
     self.action_encodings = torch.eye(self.numActions)
@@ -62,17 +64,27 @@ function trans:__init(args)
     self.recent_s = {}
     self.recent_a = {}
     self.recent_t = {}
+    self.recent_a_o = {}
+    self.recent_bad_command  = {}
 
     local s_size = self.stateDim*histLen
+
+    self.buf_bad_command  = torch.LongTensor(self.bufferSize):fill(0)
+    self.buf_s_for_obj    = torch.ByteTensor(self.bufferSize, s_size):fill(0)
+    self.buf_a_for_obj      = torch.LongTensor(self.bufferSize):fill(0)
+    self.buf_a_o          = torch.LongTensor(self.bufferSize):fill(0)
+
     self.buf_a      = torch.LongTensor(self.bufferSize):fill(0)
     self.buf_r      = torch.zeros(self.bufferSize)
     self.buf_term   = torch.ByteTensor(self.bufferSize):fill(0)
     self.buf_s      = torch.ByteTensor(self.bufferSize, s_size):fill(0)
     self.buf_s2     = torch.ByteTensor(self.bufferSize, s_size):fill(0)
 
+
     if self.gpu and self.gpu >= 0 then
         self.gpu_s  = self.buf_s:float():cuda()
         self.gpu_s2 = self.buf_s2:float():cuda()
+        self.gpu_s_for_obj = self.buf_s_for_obj:float():cuda()
     end
 end
 
@@ -92,7 +104,6 @@ function trans:empty()
     return self.numEntries == 0
 end
 
-
 function trans:fill_buffer()
     assert(self.numEntries >= self.bufferSize)
     -- clear CPU buffers
@@ -100,17 +111,39 @@ function trans:fill_buffer()
     local ind
     for buf_ind=1,self.bufferSize do
         local s, a, r, s2, term = self:sample_one(1)
+
         self.buf_s[buf_ind]:copy(s)
         self.buf_a[buf_ind] = a
-        self.buf_r[buf_ind] = r
+	      self.buf_r[buf_ind] = r
         self.buf_s2[buf_ind]:copy(s2)
         self.buf_term[buf_ind] = term
     end
+    -- fill object related buffers
+    for buf_ind=1,self.bufferSize do
+        local s, a, r, s2, term , a_o,bad_command = self:sample_one(1)
+        if a_o == 0 then
+          --local i=0
+          repeat  -- only include samples where an action is taken on an object
+          s, a, r, s2, term , a_o,bad_command = self:sample_one(1)
+          --i = i+1
+          until a_o ~= 0
+          --print("@DEBUG - filtering object action took", i ,"attempts\n")
+        end
+
+        self.buf_s_for_obj[buf_ind]:copy(s)
+        self.buf_a_for_obj[buf_ind] = a
+	      self.buf_a_o[buf_ind]  = a_o
+	      self.buf_bad_command[buf_ind] = bad_command
+    end
+
+
     self.buf_s  = self.buf_s:float():div(255)
     self.buf_s2 = self.buf_s2:float():div(255)
+    self.buf_s_for_obj = self.buf_s_for_obj:float():div(255)
     if self.gpu and self.gpu >= 0 then
         self.gpu_s:copy(self.buf_s)
         self.gpu_s2:copy(self.buf_s2)
+        self.gpu_s_for_obj:copy(self.buf_s_for_obj)
     end
 end
 
@@ -159,12 +192,17 @@ function trans:sample(batch_size)
 
     local buf_s, buf_s2, buf_a, buf_r, buf_term = self.buf_s, self.buf_s2,
         self.buf_a, self.buf_r, self.buf_term
+    -- buffer extension for object related actoins and states
+    local buf_s_for_obj, buf_a_for_obj, buf_a_o, buf_bad_command = self.buf_s_for_obj, self.buf_a_for_obj,
+        self.buf_a_o,  self.buf_bad_command
     if self.gpu and self.gpu >=0  then
         buf_s = self.gpu_s
         buf_s2 = self.gpu_s2
+        buf_s_for_obj = self.gpu_s_for_obj
     end
 
-    return buf_s[range], buf_a[range], buf_r[range], buf_s2[range], buf_term[range]
+    return buf_s[range], buf_a[range], buf_r[range], buf_s2[range], buf_term[range],
+        buf_s_for_obj[range], buf_a_for_obj[range], buf_a_o[range],buf_bad_command[range]
 end
 
 
@@ -273,16 +311,20 @@ function trans:get(index)
     local s2 = self:concatFrames(index+1)
     local ar_index = index+self.recentMemSize-1
 
-    return s, self.a[ar_index], self.r[ar_index], s2, self.t[ar_index+1]
+    return s, self.a[ar_index], self.r[ar_index], s2, self.t[ar_index+1], self.a_o[ar_index], self.bad_command[ar_index]
 end
 
 
-function trans:add(s, a, r, term)
+function trans:add(s, a, r, term, a_o,bad_command)
+
     assert(s, 'State cannot be nil')
     assert(a, 'Action cannot be nil')
     assert(r, 'Reward cannot be nil')
+    assert(a_o, 'an object cannot be nil')
+    assert(bad_command, 'Reward cannot be nil')
     --print("@DEBUG: transition table add state in\n", s)
     --print("@DEBUG: transition table add self state\n", self.s:size())
+    --print("@DEBUG: transition table: add -" .. a .. r .. a_o .. bad_command)
 
 
     -- Incremenet until at full capacity
@@ -301,13 +343,14 @@ function trans:add(s, a, r, term)
     self.s[self.insertIndex] = s:clone():float():mul(255)
     self.a[self.insertIndex] = a
     self.r[self.insertIndex] = r
+    self.a_o[self.insertIndex] = a_o
+    self.bad_command[self.insertIndex] = bad_command
     if term then
         self.t[self.insertIndex] = 1
     else
         self.t[self.insertIndex] = 0
     end
 end
-
 
 function trans:add_recent_state(s, term)
     local s = s:clone():float():mul(255):byte()
@@ -333,18 +376,21 @@ function trans:add_recent_state(s, term)
 end
 
 
-function trans:add_recent_action(a)
+function trans:add_recent_action(a,a_o)
     if #self.recent_a == 0 then
         for i=1,self.recentMemSize do
             table.insert(self.recent_a, 1)
+            table.insert(self.recent_a_o, 1)
         end
     end
 
     table.insert(self.recent_a, a)
+    table.insert(self.recent_a_o, a_o)
 
     -- Keep recentMemSize steps.
     if #self.recent_a > self.recentMemSize then
         table.remove(self.recent_a, 1)
+        table.remove(self.recent_a_o, 1)
     end
 end
 
@@ -389,6 +435,7 @@ function trans:read(file)
 
     self.s = torch.ByteTensor(self.maxSize, self.stateDim):fill(0)
     self.a = torch.LongTensor(self.maxSize):fill(0)
+    self.a_o = torch.LongTensor(self.maxSize):fill(0)
     self.r = torch.zeros(self.maxSize)
     self.t = torch.ByteTensor(self.maxSize):fill(0)
     self.action_encodings = torch.eye(self.numActions)
@@ -397,6 +444,8 @@ function trans:read(file)
     -- constructing the most recent agent state more easily.
     self.recent_s = {}
     self.recent_a = {}
+    self.recent_a_o = {}
+    self.recent_bad_command = {}
     self.recent_t = {}
 
     self.buf_a      = torch.LongTensor(self.bufferSize):fill(0)
@@ -404,9 +453,15 @@ function trans:read(file)
     self.buf_term   = torch.ByteTensor(self.bufferSize):fill(0)
     self.buf_s      = torch.ByteTensor(self.bufferSize, self.stateDim * self.histLen):fill(0)
     self.buf_s2     = torch.ByteTensor(self.bufferSize, self.stateDim * self.histLen):fill(0)
+    -- set the sample buffer for object related states and actions
+    self.buf_a_o     = torch.LongTensor(self.bufferSize):fill(0)
+    self.buf_bad_command = torch.LongTensor(self.bufferSize):fill(0)
+    self.buf_a_for_obj = torch.LongTensor(self.bufferSize):fill(0)
+    self.buf_s_for_obj = torch.ByteTensor(self.bufferSize, self.stateDim * self.histLen):fill(0)
 
     if self.gpu and self.gpu >= 0 then
         self.gpu_s  = self.buf_s:float():cuda()
         self.gpu_s2 = self.buf_s2:float():cuda()
+        self.gpu_s_for_obj = self.buf_s_for_obj:float():cuda()
     end
 end

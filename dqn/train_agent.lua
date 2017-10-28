@@ -68,6 +68,7 @@ local v_history = {}
 local qmax_history = {}
 local td_history = {}
 local reward_history = {}
+local obj_loss_history = {}
 local step = 0
 time_history[1] = 0
 
@@ -80,13 +81,14 @@ print("Iteration ..", step)
 local win = nil
 while step < opt.steps do
     step = step + 1
-    local action_index = agent:perceive(reward, screen, terminal)
+    local action_index,a_o = agent:perceive(reward, screen, terminal)
     --print ("@DEBUG: train_agent action index is",action_index)
     --print ("@DEBUG: train_agent game actions is",table.unpack(game_actions))
     --print ("@DEBUG: train_agent game_actions[action_index] is",game_actions[action_index])
     -- game over? get next game!
     if not terminal then
-        screen, reward, terminal = game_env:step(game_actions[action_index], true)
+        screen, reward, terminal,new_state_string , bad_command = game_env:step(game_actions[action_index], true)
+	  agent.lastAction_bad = bad_command -- give agent feedback for last command validity
     else
         if opt.random_starts > 0 then
             screen, reward, terminal = game_env:nextRandomGame()
@@ -102,7 +104,7 @@ while step < opt.steps do
         assert(step==agent.numSteps, 'trainer step: ' .. step ..
                 ' & agent.numSteps: ' .. agent.numSteps)
         print("Steps: ", step)
-        agent:report()
+        --agent:report()
         collectgarbage()
     end
 
@@ -118,12 +120,17 @@ while step < opt.steps do
         episode_reward = 0
 
         local eval_time = sys.clock()
+        local eval_bad_command = 0
+        local eval_tot_obj_actions = 0
         for estep=1,opt.eval_steps do
-            local action_index = agent:perceive(reward, screen, terminal, true, 0.05)
-
+            local action_index,a_o = agent:perceive(reward, screen, terminal, true, 0.05) -- a_o : object for action assume only 1 for now
             -- Play game in test mode (episodes don't end when losing a life)
-            screen, reward, terminal = game_env:step(game_actions[action_index])
-
+            screen, reward, terminal,new_state_string,bad_command = game_env:step(game_actions[action_index])
+	          agent.lastAction_bad = bad_command -- update agent feedback on syntax flag for last command
+            if a_o ~= 0 then
+              eval_bad_command = eval_bad_command + bad_command
+              eval_tot_obj_actions = eval_tot_obj_actions + 1
+            end
             -- display screen
               -- @DEBUG CO:win = image.display({image=screen, win=win})
 
@@ -145,8 +152,8 @@ while step < opt.steps do
 
         eval_time = sys.clock() - eval_time
         start_time = start_time + eval_time
-        agent:compute_validation_statistics()
-        local ind = #reward_history+1
+	local ind = #reward_history+1
+	obj_loss_history[ind] = agent:compute_validation_statistics() -- update loss for obj network
         total_reward = total_reward/math.max(1, nepisodes)
 
         if #reward_history == 0 or total_reward > torch.Tensor(reward_history):max() then
@@ -159,9 +166,9 @@ while step < opt.steps do
             qmax_history[ind] = agent.q_max
         end
         print("V", v_history[ind], "TD error", td_history[ind], "Qmax", qmax_history[ind])
-
+        print("bad commands issued on objects", eval_bad_command/eval_tot_obj_actions)
         reward_history[ind] = total_reward
-        reward_counts[ind] = nrewards
+	reward_counts[ind] = nrewards
         episode_counts[ind] = nepisodes
 
         time_history[ind+1] = sys.clock() - start_time
@@ -180,10 +187,10 @@ while step < opt.steps do
     end
 
     if step % opt.save_freq == 0 or step == opt.steps then
-        local s, a, r, s2, term = agent.valid_s, agent.valid_a, agent.valid_r,
-            agent.valid_s2, agent.valid_term
+        local s, a, r, s2, term,a_o,bad_command = agent.valid_s, agent.valid_a, agent.valid_r,
+            agent.valid_s2, agent.valid_term, agent.valid_a_o,agent.valid_bad_command
         agent.valid_s, agent.valid_a, agent.valid_r, agent.valid_s2,
-            agent.valid_term = nil, nil, nil, nil, nil, nil, nil
+            agent.valid_term,agent.valid_a_o,agent.valid_bad_command = nil, nil, nil, nil, nil, nil, nil
         local w, dw, g, g2, delta, delta2, deltas, tmp = agent.w, agent.dw,
             agent.g, agent.g2, agent.delta, agent.delta2, agent.deltas, agent.tmp
         agent.w, agent.dw, agent.g, agent.g2, agent.delta, agent.delta2,
@@ -198,6 +205,7 @@ while step < opt.steps do
                                 model = agent.network,
                                 best_model = agent.best_network,
                                 reward_history = reward_history,
+				obj_loss_history = obj_loss_history,
                                 reward_counts = reward_counts,
                                 episode_counts = episode_counts,
                                 time_history = time_history,
@@ -209,8 +217,8 @@ while step < opt.steps do
             local nets = {network=w:clone():float()}
             torch.save(filename..'.params.t7', nets, 'ascii')
         end
-        agent.valid_s, agent.valid_a, agent.valid_r, agent.valid_s2,
-            agent.valid_term = s, a, r, s2, term
+        agent.valid_s, agent.valid_a, agent.valid_r, agent.valid_s2, agent.valid_term,
+	    agent.valid_a_o,agent.valid_bad_command = s, a, r, s2, term, a_o,bad_command
         agent.w, agent.dw, agent.g, agent.g2, agent.delta, agent.delta2,
             agent.deltas, agent.tmp = w, dw, g, g2, delta, delta2, deltas, tmp
         print('Saved:', filename .. '.t7')

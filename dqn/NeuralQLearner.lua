@@ -3,6 +3,7 @@ Copyright (c) 2014 Google Inc.
 
 See LICENSE file for full terms of limited license.
 ]]
+require 'optim'
 
 if not dqn then
     require 'initenv'
@@ -60,17 +61,41 @@ function nql:__init(args)
     self.histSpacing    = args.histSpacing or 1
     self.nonTermProb    = args.nonTermProb or 1
     self.bufferSize     = args.bufferSize or 512
-
+    self.Y_buff         = torch.CudaTensor(self.minibatch_size,5) -- buffer for multiclass labels
+    self.valid_Y_buff   = torch.CudaTensor(self.valid_size,5)
     self.transition_params = args.transition_params or {}
 
     self.network    = args.network or self:createNetwork()
-
+    self.optimState = {learningRate = 0.0005} -- for obj network
     -- check whether there is a network file
     local network_function
     if not (type(self.network) == 'string') then
         error("The type of the network provided in NeuralQLearner" ..
               " is not a string!")
     end
+-- init obj network
+    self.obj_network = 'conv_obj_net'
+    local msg, err = pcall(require, self.obj_network)
+    if not msg then
+        -- try to load saved agent
+        local err_msg, exp = pcall(torch.load, self.obj_network)
+        if not err_msg then
+            error("Could not find object network file ")
+        end
+        if self.best and exp.best_model then
+            self.obj_network = exp.best_model
+        else
+            self.obj_network = exp.model
+        end
+    else
+        print('Creating Object Network from ' .. self.obj_network)
+        self.obj_network = err
+        self.obj_network = self:obj_network()
+
+    end
+    -- set object network loss for multi lable learning
+    self.objNetLoss = nn.MultiLabelSoftMarginCriterion()
+    -- end of object network init
 
     local msg, err = pcall(require, self.network)
     if not msg then
@@ -93,8 +118,16 @@ function nql:__init(args)
 
     if self.gpu and self.gpu >= 0 then
         self.network:cuda()
+        self.obj_network:cuda()
+        self.Y_buff:cuda()
+	self.valid_Y_buff:cuda()
+        self.objNetLoss:cuda()
+        self.tensor_type = torch.CudaTensor
     else
         self.network:float()
+        self.obj_network:float()
+        self.tensor_type = torch.FloatTensor
+
     end
 
     -- Load preprocessing network.
@@ -108,14 +141,6 @@ function nql:__init(args)
     self.preproc = err
     self.preproc = self:preproc()
     self.preproc:float()
-
-    if self.gpu and self.gpu >= 0 then
-        self.network:cuda()
-        self.tensor_type = torch.CudaTensor
-    else
-        self.network:float()
-        self.tensor_type = torch.FloatTensor
-    end
 
     -- Create transition table.
     ---- assuming the transition table always gets floating point input
@@ -135,12 +160,16 @@ function nql:__init(args)
     self.numSteps = 0 -- Number of perceived states.
     self.lastState = nil
     self.lastAction = nil
+    self.lastAction_o = nil
+    self.lastAction_bad = nil
     self.v_avg = 0 -- V running average.
     self.tderr_avg = 0 -- TD error running average.
 
     self.q_max = 1
     self.r_max = 1
 
+    self.obj_w, self.obj_dw = self.obj_network:getParameters()
+    print("number of parameterns in object network",#self.obj_w)
     self.w, self.dw = self.network:getParameters()
     self.dw:zero()
 
@@ -247,11 +276,10 @@ function nql:qLearnMinibatch()
     -- w += alpha * (r + gamma max Q(s2,a2) - Q(s,a)) * dQ(s,a)/dw
     assert(self.transitions:size() > self.minibatch_size)
 
-    local s, a, r, s2, term = self.transitions:sample(self.minibatch_size)
-
+    local s, a, r, s2, term, s_for_obj, a_for_obj,a_o, bad_command = self.transitions:sample(self.minibatch_size)
+    --print("@DEBUG - transition batch sample", torch.cat(torch.cat(a ,a_o,2), bad_command,2))
     local targets, delta, q2_max = self:getQUpdate{s=s, a=a, r=r, s2=s2,
         term=term, update_qmax=true}
-
     -- zero gradients of parameters
     self.dw:zero()
 
@@ -280,28 +308,72 @@ function nql:qLearnMinibatch()
     -- accumulate update
     self.deltas:mul(0):addcdiv(self.lr, self.dw, self.tmp)
     self.w:add(self.deltas)
+    self:objLearnMiniBatch(s_for_obj,a_for_obj,a_o, bad_command) -- now train obj network
+end
+
+function setYbuff(action_object, bad_command, buff)
+   buff:zero() -- 2d buffer of size minibatchXnum_objects
+   local object_index
+   for i=1, (#buff)[1] do -- expand labels
+      object_index = action_object[i]
+      buff[i][object_index] = bad_command[i]
+   end
+   --print ("@DEBUG - Y buff", buff)
 end
 
 
+-- only object related samples in the batch, maybe add some normal samples?
+function nql:objLearnMiniBatch(s,a,a_o,bad_command)
+  assert(self.transitions:size() > self.minibatch_size)
+--  local _, _, _, _, _,s,a,a_o, bad_command = self.transitions:sample(self.minibatch_size)
+ -- local theta, gradTheta = self.obj_network:getParameters()
+  --print("@DEBUG - transition obj batch sample\n", torch.cat(torch.cat(a ,a_o,2), bad_command,2))
+
+  --local optimState = {learningRate = 0.0015} -- now this is under self.optimstate
+
+     function feval()
+        self.obj_dw:zero()
+        setYbuff(a_o, bad_command,self.Y_buff)
+        local h_x = self.obj_network:forward(s)
+        local J = self.objNetLoss:forward(h_x, self.Y_buff)
+        --print("@DEBUG loss calculated "..J, "\npredictions = \n","actual labels= \n",h_x,self.Y_buff) -- just for debugging purpose
+        local dJ_dh_x = self.objNetLoss:backward(h_x, self.Y_buff)
+        self.obj_network:backward(s, dJ_dh_x) -- computes and updates gradTheta
+	      return J, self.obj_dw
+     end
+     optim.sgd(feval, self.obj_w, self.optimState)
+end
+-- @TODO consider using dedicated aux transition tables for each action to avoid excess resampling
 function nql:sample_validation_data()
-    local s, a, r, s2, term = self.transitions:sample(self.valid_size)
+    local s, a, r, s2, term,s_for_obj,a_for_obj,a_o,bad_command = self.transitions:sample(self.valid_size)
     self.valid_s    = s:clone()
     self.valid_a    = a:clone()
     self.valid_r    = r:clone()
     self.valid_s2   = s2:clone()
     self.valid_term = term:clone()
+
+    self.valid_s_for_obj = s_for_obj:clone()
+    self.valid_a_for_obj = a_for_obj:clone()
+    self.valid_a_o = a_o:clone()
+    self.valid_bad_command = bad_command:clone()
 end
 
 
 function nql:compute_validation_statistics()
     local targets, delta, q2_max = self:getQUpdate{s=self.valid_s,
         a=self.valid_a, r=self.valid_r, s2=self.valid_s2, term=self.valid_term}
+    setYbuff(self.valid_a_o, self.valid_bad_command,self.valid_Y_buff)
 
+    local h_x = self.obj_network:forward(self.valid_s_for_obj)
+    --print(#h_x,)
+    local J = self.objNetLoss:forward(h_x, self.valid_Y_buff)
+    print("object net validation loss", J)
     self.v_avg = self.q_max * q2_max:mean()
     self.tderr_avg = delta:clone():abs():mean()
+    return J
 end
 
-
+--choose an action index based on last s,r,term
 function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     -- Preprocess state (will be set to nil if terminal)
     --local state = self:preprocess(rawstate):float()
@@ -328,10 +400,11 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     local currentFullState = self.transitions:get_recent()
     --print("@DEBUG: currentFullState:\n",currentFullState)
 
-    --Store transition s, a, r, s'
+    --Store transition s, a, r, s',a_o,bad_command from last step
     if self.lastState and not testing then
+			--add(s, a, r, term, a_o,bad_command)
         self.transitions:add(self.lastState, self.lastAction, reward,
-                             self.lastTerminal, priority)
+                             self.lastTerminal, self.lastAction_o or 0, self.lastAction_bad)
     end
 
     if self.numSteps == self.learn_start+1 and not testing then
@@ -342,12 +415,15 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     curState = curState:resize(1, unpack(self.input_dims))
     -- Select action
     local actionIndex = 1
+    local a_o
     --print ("@DEBUG: agent state dump: \n",curState)
     if not terminal then
         actionIndex = self:eGreedy(curState, testing_ep)
+	a_o = self.actions[actionIndex].object or 0
+		-- given action index we can choose object to work on
     end
 
-    self.transitions:add_recent_action(actionIndex)
+    self.transitions:add_recent_action(actionIndex,a_o)
 
     --Do some Q-learning updates
     if self.numSteps > self.learn_start and not testing and
@@ -363,14 +439,15 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
 
     self.lastState = state:clone()
     self.lastAction = actionIndex
+    self.lastAction_o = a_o
     self.lastTerminal = terminal
-
+    -- self.lastAction_bad is updated externally after we try the command
     if self.target_q and self.numSteps % self.target_q == 1 then
         self.target_network = self.network:clone()
     end
 
     if not terminal then
-        return actionIndex
+        return actionIndex,a_o
     else
         return 0
     end
@@ -419,7 +496,7 @@ function nql:greedy(state)
     local r = torch.random(1, #besta)
 
     self.lastAction = besta[r]
-
+    self.lastAction_o = self.actions[besta[r]].object or 0
     return besta[r]
 end
 
@@ -441,19 +518,22 @@ end
 
 function nql:_loadNet()
     local net = self.network
+    local obj_net = self.obj_network
     if self.gpu then
         net:cuda()
+        obj_net:cuda()
     else
         net:float()
+        obj_net:float()
     end
-    return net
+    return net,obj_net
 end
 
 
 function nql:init(arg)
     self.actions = arg.actions
     self.n_actions = #self.actions
-    self.network = self:_loadNet()
+    self.network, self.obj_network = self:_loadNet()
     -- Generate targets.
     self.transitions:empty()
 end
@@ -462,4 +542,7 @@ end
 function nql:report()
     print(get_weight_norms(self.network))
     print(get_grad_norms(self.network))
+    print(get_weight_norms(self.obj_network))
+    print(get_grad_norms(self.obj_network))
+
 end

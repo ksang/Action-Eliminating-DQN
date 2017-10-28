@@ -21,6 +21,6 @@ return function(args)
   local network = nn.Sequential()
   network:add(nn.Reshape(4*65*300)) --@DEBUG_DIM(hist*state (sentence) size*word representation)
   network:add(nn.Linear(4*65*300,100)) --@DEBUG_DIM(hist*state (sentence) size*word representation)
-  network:add(nn.Linear(100,10))
+  network:add(nn.Linear(100,14))
     return network
 end
