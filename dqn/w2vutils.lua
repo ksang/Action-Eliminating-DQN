@@ -1,8 +1,8 @@
 torch.setdefaulttensortype('torch.FloatTensor')
 
 opt = {
-	binfilename = '/home/deep3/Desktop/DeepMind-Atari-Deep-Q-Learner/dqn/GoogleNews-vectors-negative300.bin',
-	outfilename = '/home/deep3/Desktop/DeepMind-Atari-Deep-Q-Learner/dqn/word2vec.t7'
+	binfilename = 'GoogleNews-vectors-negative300.bin',
+	outfilename = 'word2vec.t7'
 }
 local w2vutils = {}
 if not paths.filep(opt.outfilename) then
