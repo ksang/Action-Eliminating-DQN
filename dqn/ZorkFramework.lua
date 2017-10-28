@@ -111,7 +111,7 @@ function gameEnv:__init(_opt)
     		self.tot_steps =0
     		self.tot_inits =0
     		self:newGame()
-
+		self.objects = {"egg","door","tree","leaves","nest"}
 		self._actions = {
 
 			{action = "go east"	,desc = "move east"},
@@ -121,8 +121,14 @@ function gameEnv:__init(_opt)
 			{action = "go up"		,desc = "move up"},
 			{action = "go down"	,desc = "move down"},
 			{action = "climb tree",desc = "climb up the large tree"},
-			{action = "take egg",desc = "take valuable item"},
-			{action = "open egg",desc = "try to open item"},
+			--{action = "take egg",desc = "take valuable item"},
+			{action = "take egg",desc = "take item" , object = 1},
+			{action = "take door",desc = "take item" , object = 2},
+			{action = "take tree",desc = "take item" , object = 3},
+			{action = "take leaves",desc = "take item" , object = 4},
+			{action = "take nest",desc = "take item" , object = 5},
+			{action = "open egg",desc = "try to open item"},			
+			--{action = "open the",desc = "try to open item", objects = {"egg","door","tree","leaves","nest","mailbox"} },
       			{action = "look",desc = "observe the environment"}
 			--[[ TODO consider adding special actions where the first agent chooses to interact with, may need to ensure this is always choosen in some higher probability when training]]--
 		}
@@ -149,7 +155,7 @@ function gameEnv:newGame()
   --print("start new game number",self.tot_inits)
 	local result_file_name = zork.zorkInit()
 	local result_string = read_file(result_file_name)
-	self:_updateState(result_string,0,false) --TODO concat inventory
+	self:_updateState(result_string,0,false)
   s,r,t =  self:getState()
   return s,r,t, result_string
 end
@@ -158,20 +164,28 @@ function gameEnv:nextRandomGame()
   return self:newGame()
 end
 
-function gameEnv:step(action, training)
+function gameEnv:step(action, training,obj_ind)
+  obj_ind = action_obj_ind or 1 --default select egg 
   self.tot_steps=self.tot_steps+1
   local current_score, previous_score, previous_lives, reward, terminal
 	previous_score = zork.zorkGetScore()
 	previous_lives = zork.zorkGetLives()
 	-- print ("@DEBUG selected action:" , action.action )
-	local result_file_name = zork.zorkGameStep(action.action,false)
+	-- this constructs the command for parametric actions for step	
+	--[[local command 
+	if action.action == "take" then
+		command =  action.action .. " the " .. action.objects[obj_ind]
+	else command = action.action
+	end]]
+	
+	local result_file_name,bad_command = zork.zorkGameStep(action.action)
 	current_score = zork.zorkGetScore()
 	reward = current_score - previous_score + self._step_penalty
 	-- read step result string
 	local result_string = read_file(result_file_name)
  	-- set terminal signal
 	if training then
-  terminal = previous_lives > zork.zorkGetLives() -- every time we lose life
+  		terminal = previous_lives > zork.zorkGetLives() -- every time we lose life
 	else terminal =
 		zork.zorkGetLives() == 0 -- when evaluating agent only when no more lives
 	end
@@ -180,7 +194,7 @@ function gameEnv:step(action, training)
 	if result_string:match(self._terminal_string) then
 		terminal = true
 		reward = reward + 100 -- give additional reward
-	  print("@DEBUG: goal state reached in",zork.zorkGetNumMoves(),"steps")
+	  --print("@DEBUG: goal state reached in",zork.zorkGetNumMoves(),"steps")
 	end
 	-- early termination
 	if zork.zorkGetNumMoves() > self._step_limit - 1 then
@@ -191,7 +205,7 @@ function gameEnv:step(action, training)
  end]]
 	self:_updateState(result_string, reward, terminal)
 	s, r,t =   	self:getState()
-	return s,r,t , result_string
+	return s,r,t,result_string,bad_command,command
 end
 
 --[[ Function returns the number total number of pixels in one frame/observation
@@ -208,5 +222,6 @@ end
 function gameEnv:getActions()
       return self._actions
 end
+
 
 return ZorkFramework
