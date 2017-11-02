@@ -67,6 +67,7 @@ function trans:__init(args)
     self.recent_a_o = {}
     self.recent_bad_command  = {}
     self.take_action_index = {}
+
     local s_size = self.stateDim*histLen
 
     self.buf_bad_command  = torch.LongTensor(self.bufferSize):fill(0)
@@ -121,6 +122,7 @@ function trans:fill_buffer()
     end
     -- fill object related buffers
     for buf_ind=1,self.bufferSize do
+
         local s, a,r,s2,t,a_o,bad_command, index
 	repeat 
 	index = self.take_action_index[torch.random(#self.take_action_index)] - self.recentMemSize +1
@@ -133,6 +135,7 @@ function trans:fill_buffer()
         self.buf_a_for_obj[buf_ind] = a
 	self.buf_a_o[buf_ind]  = a_o
 	self.buf_bad_command[buf_ind] = bad_command
+
     end
 
 
@@ -360,6 +363,7 @@ function trans:add(s, a, r, term, a_o,bad_command)
       --print(a)
       --assert(a_o~=0)
     end
+
     if term then
         self.t[self.insertIndex] = 1
     else

@@ -2,6 +2,7 @@ require 'initenv'
 require 'cunn'
 require 'nn'
 require 'gnuplot'
+
 local lim = 800
 local agent = torch.load('DQN3_0_1__FULL_Y_test_obj.t7')
 local a = torch.CudaTensor(800):zero()
