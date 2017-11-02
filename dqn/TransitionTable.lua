@@ -66,7 +66,7 @@ function trans:__init(args)
     self.recent_t = {}
     self.recent_a_o = {}
     self.recent_bad_command  = {}
-
+    self.take_action_index = {}
     local s_size = self.stateDim*histLen
 
     self.buf_bad_command  = torch.LongTensor(self.bufferSize):fill(0)
@@ -92,6 +92,7 @@ end
 function trans:reset()
     self.numEntries = 0
     self.insertIndex = 0
+    self.take_action_index = {}
 end
 
 
@@ -120,20 +121,18 @@ function trans:fill_buffer()
     end
     -- fill object related buffers
     for buf_ind=1,self.bufferSize do
-        local s, a, r, s2, term , a_o,bad_command = self:sample_one(1)
-        if a_o == 0 then
-          --local i=0
-          repeat  -- only include samples where an action is taken on an object
-          s, a, r, s2, term , a_o,bad_command = self:sample_one(1)
-          --i = i+1
-          until a_o ~= 0
-          --print("@DEBUG - filtering object action took", i ,"attempts\n")
-        end
+        local s, a,r,s2,t,a_o,bad_command, index
+	repeat 
+	index = self.take_action_index[torch.random(#self.take_action_index)] - self.recentMemSize +1
+	until index > 1
+	s, a,r,s2,t,a_o,bad_command = self:get(index)
+        --print ("total object action sampled",#self.take_action_index)
+        assert(a_o ~= 0)
 
         self.buf_s_for_obj[buf_ind]:copy(s)
         self.buf_a_for_obj[buf_ind] = a
-	      self.buf_a_o[buf_ind]  = a_o
-	      self.buf_bad_command[buf_ind] = bad_command
+	self.buf_a_o[buf_ind]  = a_o
+	self.buf_bad_command[buf_ind] = bad_command
     end
 
 
@@ -182,6 +181,7 @@ function trans:sample(batch_size)
     assert(batch_size < self.bufferSize)
 
     if not self.buf_ind or self.buf_ind + batch_size - 1 > self.bufferSize then
+        --print("filling sample buffer")
         self:fill_buffer()
     end
 
@@ -309,11 +309,16 @@ end
 function trans:get(index)
     local s = self:concatFrames(index)
     local s2 = self:concatFrames(index+1)
-    local ar_index = index+self.recentMemSize-1
+    local ar_index = index+self.recentMemSize-1  --why?!??!?!?
 
     return s, self.a[ar_index], self.r[ar_index], s2, self.t[ar_index+1], self.a_o[ar_index], self.bad_command[ar_index]
 end
+function trans:get2(index)
+    local s = self:concatFrames(index)
+    local ar_index = index
 
+    return s, self.a[ar_index], self.a_o[ar_index], self.bad_command[ar_index]
+end
 
 function trans:add(s, a, r, term, a_o,bad_command)
 
@@ -338,13 +343,23 @@ function trans:add(s, a, r, term, a_o,bad_command)
     if self.insertIndex > self.maxSize then
         self.insertIndex = 1
     end
-
+    if self.numEntries == self.maxSize and self.insertIndex  == self.take_action_index[1] then
+      --[[once table is full this ensures the action index list doesnt point to tuples which
+       have been removed due to the index wrap around]]
+      table.remove(self.take_action_index,1)
+    end
     -- Overwrite (s,a,r,t) at insertIndex
     self.s[self.insertIndex] = s:clone():float():mul(255)
     self.a[self.insertIndex] = a
     self.r[self.insertIndex] = r
     self.a_o[self.insertIndex] = a_o
     self.bad_command[self.insertIndex] = bad_command
+
+    if ((a < 13) and (a > 7)) then --take action recorded
+      table.insert(self.take_action_index,self.insertIndex)
+      --print(a)
+      --assert(a_o~=0)
+    end
     if term then
         self.t[self.insertIndex] = 1
     else
@@ -447,6 +462,7 @@ function trans:read(file)
     self.recent_a_o = {}
     self.recent_bad_command = {}
     self.recent_t = {}
+    self.take_action_index = {}
 
     self.buf_a      = torch.LongTensor(self.bufferSize):fill(0)
     self.buf_r      = torch.zeros(self.bufferSize)
