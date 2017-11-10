@@ -10,7 +10,7 @@ if not dqn then
 end
 
 local nql = torch.class('dqn.NeuralQLearner')
-
+local NUM_TAKE_OBJECTS = 5
 
 function nql:__init(args)
     self.state_dim  = args.state_dim -- State dimensionality.
@@ -61,8 +61,8 @@ function nql:__init(args)
     self.histSpacing    = args.histSpacing or 1
     self.nonTermProb    = args.nonTermProb or 1
     self.bufferSize     = args.bufferSize or 512
-    self.Y_buff         = torch.CudaTensor(self.minibatch_size,5) -- buffer for multiclass labels
-    self.valid_Y_buff   = torch.CudaTensor(self.valid_size,5)
+    self.Y_buff         = torch.CudaTensor(self.minibatch_size,NUM_TAKE_OBJECTS) -- buffer for multiclass labels
+    self.valid_Y_buff   = torch.CudaTensor(self.valid_size,NUM_TAKE_OBJECTS)
     self.transition_params = args.transition_params or {}
 
     self.network    = args.network or self:createNetwork()
@@ -93,10 +93,10 @@ function nql:__init(args)
 
     end
     -- set object network loss for multi lable learning
-    self.objNetLoss = nn.MultiLabelSoftMarginCriterion()
+    self.objNetLoss = nn.MultiLabelSoftMarginCriterion() --need to remove sigmoid activation from the network
     --self.objNetLoss = nn.BCECriterion()
     self.optimState = {learningRate = 0.000013}--,learningRateDecay = 0.01}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
-
+    self.last_object_net_accuracy = 0
     -- end of object network init
 
     local msg, err = pcall(require, self.network)
@@ -121,8 +121,8 @@ function nql:__init(args)
     if self.gpu and self.gpu >= 0 then
         self.network:cuda()
         self.obj_network:cuda()
-        self.Y_buff:cuda()
-	      self.valid_Y_buff:cuda()
+        --self.Y_buff:cuda()
+	      --self.valid_Y_buff:cuda()
         self.objNetLoss:cuda()
         self.tensor_type = torch.CudaTensor
     else
@@ -336,6 +336,10 @@ function nql:setYbuff(action_object, bad_command, validation)
         self.Y_buff[i][object_index] = bad_command[i]
      end
    end
+
+   if self.gpu >=0 then
+	 if validation then self.valid_Y_buff:cuda() else self.Y_buff:cuda() end
+   end
    --print ("@DEBUG - Y valid buff", buff)
 end
 
@@ -347,19 +351,21 @@ function nql:objLearnMiniBatch(s,a,a_o,bad_command)
         self.obj_dw:zero()
         self:setYbuff(a_o, bad_command)
         --print("buffer after setting",self.Y_buff)
-        local grad_image = self.Y_buff:ne(0.5) -- maps which gradients we wish to keep
+        --local grad_image = self.Y_buff:ne(0.5) -- maps which gradients we wish to keep
         --print("grad image",grad_image)
-        local h_x = self.obj_network:forward(s)
+        local h_x = self.obj_network:forward(s):cuda()
         local J = self.objNetLoss:forward(h_x, self.Y_buff)
         --print("@DEBUG loss calculated "..J, "\npredictions = \n","actual labels= \n",h_x,self.Y_buff) -- just for debugging purpose
-        local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda())--zero out none informative gradients
+	--zero out none informative gradients
+	--local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda()]])
         --print ("after cmul",dJ_dh_x)
+	local dJ_dh_x = self.objNetLoss:backward(h_x, self.Y_buff):cuda()
         self.obj_network:backward(s, dJ_dh_x) -- computes and updates gradTheta
-	      return J, self.obj_dw
+	return J, self.obj_dw
      end
      optim.adam(feval, self.obj_w, self.optimState)
 end
--- @TODO consider using dedicated aux transition tables for each action to avoid excess resampling
+
 function nql:sample_validation_data()
     print("sampling validation data")
     local s, a, r, s2, term,s_for_obj,a_for_obj,a_o,bad_command = self.transitions:sample(self.valid_size)
@@ -375,19 +381,19 @@ function nql:sample_validation_data()
     self.valid_a_o = a_o:clone()
     self.valid_bad_command = bad_command:clone()
     local bad_parse_samples = bad_command:sum()
-    print("total bad parse " .. bad_parse_samples .. " and " .. self.valid_size -  bad_parse_samples.. " succesfull parse")
+    self.transitions:report()
+    print("validation sample contains:\ntotal bad parse " .. bad_parse_samples .. " and " .. self.valid_size -  bad_parse_samples.. " succesfull parse")
 end
 
 
 function nql:compute_validation_statistics()
     local targets, delta, q2_max = self:getQUpdate{s=self.valid_s,
         a=self.valid_a, r=self.valid_r, s2=self.valid_s2, term=self.valid_term}
-
     self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
     --print(self.valid_Y_buff)
-    local h_x = self.obj_network:forward(self.valid_s_for_obj)
+    local h_x = self.obj_network:forward(self.valid_s_for_obj):cuda()
     local J = self.objNetLoss:forward(h_x, self.valid_Y_buff)
-    local h_y = 1 - h_x:le(0.7) -- calculate prediction, 0.7 value compansates for the strong sample bias for 1 labels
+    local h_y = 1 - h_x:le(0.5) -- calculate prediction
     local sum = 0
     local false_neg = 0
     for i=1,self.valid_size do
@@ -403,11 +409,13 @@ function nql:compute_validation_statistics()
     --print("predicted lables vs validation sample\n",torch.cat(h_y:float(),self.valid_Y_buff:float()))
     local single_lable_acc = sum/self.valid_size
     print("object net accuracy",single_lable_acc)
-    print("obj net is limiting ".. false_neg .. " possible objects")
+    print("obj net reports ".. false_neg .. "false negetives")
     print("object net validation loss", J)
+    self.transitions:report()
 
     self.v_avg = self.q_max * q2_max:mean()
     self.tderr_avg = delta:clone():abs():mean()
+    self.last_object_net_accuracy = single_lable_acc
     return {J, single_lable_acc}
 end
 
@@ -445,8 +453,9 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
                              self.lastTerminal, self.lastAction_o or 0, self.lastAction_bad)
     end
 
-    if self.numSteps == self.learn_start+1 and not testing then
-        self:sample_validation_data()
+    if (self.numSteps == self.learn_start+1 --[[or (self.numSteps % self.replay_memory == 0 and self.numSteps > self.learn_start)]]) and not testing then
+        --sample validation data every time we cycle through the entire replay mem size
+	      self:sample_validation_data()
     end
 
     curState= self.transitions:get_recent()
@@ -454,11 +463,11 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     -- Select action
     local actionIndex = 1
     local a_o
+
     --print ("@DEBUG: agent state dump: \n",curState)
     if not terminal then
-        actionIndex = self:eGreedy(curState, testing_ep)
-	  a_o = self.actions[actionIndex].object or 0
-		-- given action index we can choose object to work on
+      	actionIndex = self:eGreedy(curState,testing, testing_ep)
+      	a_o = self.actions[actionIndex].object or 0
     end
 
     self.transitions:add_recent_action(actionIndex,a_o)
@@ -492,21 +501,61 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
 end
 
 
-function nql:eGreedy(state, testing_ep)
-    self.ep = testing_ep or (self.ep_end +
+function nql:eGreedy(state, testing,testing_ep)
+    if not testing then
+	self.ep = (self.ep_end +
                 math.max(0, (self.ep_start - self.ep_end) * (self.ep_endt -
                 math.max(0, self.numSteps - self.learn_start))/self.ep_endt))
-    -- Epsilon greedy
+    else self.ep = testing_ep end
+
+    local prediction = nil
+    local hard_prediction
+    local actionIndex, a_o
+
+    -- Turn single state into minibatch.  Needed for convolutional nets.
+    if state:dim() == 2 then
+	assert(false, 'Input must be at least 3D')
+        state = state:resize(1, state:size(1), state:size(2))
+    end
+
+    if self.gpu >= 0 then
+        state = state:cuda()
+    end
+
+    -- Epsilon greedy version which cuts the chance to explore "bad actions" by half
+    if self.last_object_net_accuracy > 0.9 and self.numSteps > 3*self.learn_start then --start using object network insight
+	--prediction = nn.Sigmoid():forward(self.obj_network:forward(state)):float() --for MLSML criterion
+	prediction = self.obj_network:forward(state):float():squeeze() --for BCE cretirion network last layer is sigmoid.
+    end
+
     if torch.uniform() < self.ep then
-        return torch.random(1, self.n_actions)
-    else
-        return self:greedy(state)
+	actionIndex = torch.random(1, self.n_actions) --choose at random
+	if prediction then --restricted random action selection, else use standard exploration
+		a_o = self.actions[actionIndex].object or 0	-- extract relevant object
+		if a_o ~= 0 then --only for "take" actions use prediction to validate action
+		    repeat
+			--choose stricktly take action at random - this is to avoid vanishing "take" actions from replay mem
+			actionIndex = torch.random(8, 12)
+			a_o = self.actions[actionIndex].object -- extract relevant object
+			assert(a_o)
+			-- we consider only high confidence predictions - relaxation for under-represented (s,a) pairs
+			hard_prediction = prediction[a_o] > 0.65
+		        --print("prediction", prediction ,"hard prediction", hard_prediction,"for object"..a_o )
+		    -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
+		    until hard_prediction == true or (hard_prediction == false and torch.uniform() < 0.5)
+		end
+	end
+	return actionIndex
+
+    else --use greedy agent policy and pass along the raw prediction for this state
+        return self:greedy(state,prediction)
     end
 end
 
 
-function nql:greedy(state)
+function nql:greedy(state,obj_net_prediction)
     -- Turn single state into minibatch.  Needed for convolutional nets.
+
     if state:dim() == 2 then
         assert(false, 'Input must be at least 3D')
         state = state:resize(1, state:size(1), state:size(2))
@@ -520,13 +569,37 @@ function nql:greedy(state)
     local maxq = q[1]
     local besta = {1}
 
+    --greedy action restriction segment
+    local best_objects, soft_object_prediction
+
+    if obj_net_prediction then --not nil only if we have started using object net insight
+    -- flip 1 to 0 and 0 to 1 and create positive parse distribution over the objects
+	soft_object_prediction = nn.SoftMax():forward(1 - obj_net_prediction)
+    -- try to guess which are the most likely objects we would want to interact with, randomize to avoid optimal action starvation
+    best_objects = torch.multinomial(soft_object_prediction, 2)
+	--[[if self.ep==0 then print("test: actual prediction" ,obj_net_prediction,
+	    "\nsoft prediction ", soft_object_prediction,"\nbest choosen objects are" , best_objects) end]]
+
+    else -- when we dont use the predictions for code simplicity consider all objects
+	best_objects = torch.range(1,NUM_TAKE_OBJECTS)
+	-- TODO generalize this per action and associated objects (maybe per object network output dim)
+    end
+
     -- Evaluate all other actions (with random tie-breaking)
     for a = 2, self.n_actions do
-        if q[a] > maxq then
-            besta = { a }
-            maxq = q[a]
-        elseif q[a] == maxq then
-            besta[#besta+1] = a
+	    --extract the current action object index
+	    local a_o = self.actions[a].object or 0
+	    --[[only consider non object or best_objects for the max operation assuming only 1 action interacts with objects
+	      (this needs to be expanded to more then one object network and categorized by action type)]]
+        if a_o == 0 or best_objects:eq(a_o):sum() > 0 then
+
+           --if a_o ~= 0 and obj_net_prediction and self.ep == 0 then print('considering object'.. a_o) end
+            if q[a] > maxq then
+                besta = { a }
+                maxq = q[a]
+            elseif q[a] == maxq then
+                besta[#besta+1] = a
+            end
         end
     end
     self.bestq = maxq
