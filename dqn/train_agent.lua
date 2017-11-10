@@ -47,7 +47,7 @@ cmd:option('-gpu', -1, 'gpu flag')
 cmd:text()
 
 local opt = cmd:parse(arg)
-print('done')
+print(table.unpack(opt),'done')
 
 --- General setup.
 local game_env, game_actions, agent, opt = setup(opt)
@@ -88,7 +88,7 @@ while step < opt.steps do
     -- game over? get next game!
     if not terminal then
         screen, reward, terminal,new_state_string , bad_command = game_env:step(game_actions[action_index], true)
-	  agent.lastAction_bad = bad_command -- give agent feedback for last command validity
+        agent.lastAction_bad = bad_command -- give agent feedback for last command validity
     else
         if opt.random_starts > 0 then
             screen, reward, terminal = game_env:nextRandomGame()
@@ -123,16 +123,16 @@ while step < opt.steps do
         local eval_bad_command = 0
         local eval_tot_obj_actions = 0
         for estep=1,opt.eval_steps do
-            local action_index,a_o = agent:perceive(reward, screen, terminal, true, 0.05) -- a_o : object for action assume only 1 for now
+            local action_index,a_o = agent:perceive(reward, screen, terminal, true, 0)--0.05) -- a_o : object for action assume only 1 for now
             -- Play game in test mode (episodes don't end when losing a life)
             screen, reward, terminal,new_state_string,bad_command = game_env:step(game_actions[action_index])
-	          agent.lastAction_bad = bad_command -- update agent feedback on syntax flag for last command
+	        agent.lastAction_bad = bad_command -- update agent feedback on syntax flag for last command
             if a_o ~= 0 then
               eval_bad_command = eval_bad_command + bad_command
               eval_tot_obj_actions = eval_tot_obj_actions + 1
             end
             -- display screen
-              -- @DEBUG CO:win = image.display({image=screen, win=win})
+            -- @DEBUG CO:win = image.display({image=screen, win=win})
 
             if estep%1000 == 0 then collectgarbage() end
 
@@ -152,8 +152,8 @@ while step < opt.steps do
 
         eval_time = sys.clock() - eval_time
         start_time = start_time + eval_time
-	local ind = #reward_history+1
-	obj_loss_history[ind] = agent:compute_validation_statistics() -- update loss for obj network
+	    local ind = #reward_history+1
+	    obj_loss_history[ind] = agent:compute_validation_statistics() -- update loss for obj network
         total_reward = total_reward/math.max(1, nepisodes)
 
         if #reward_history == 0 or total_reward > torch.Tensor(reward_history):max() then
@@ -166,9 +166,9 @@ while step < opt.steps do
             qmax_history[ind] = agent.q_max
         end
         print("V", v_history[ind], "TD error", td_history[ind], "Qmax", qmax_history[ind])
-        print("bad commands issued on objects", eval_bad_command/eval_tot_obj_actions)
+        print("bad commands issued on objects during eval", eval_bad_command/eval_tot_obj_actions)
         reward_history[ind] = total_reward
-	reward_counts[ind] = nrewards
+	    reward_counts[ind] = nrewards
         episode_counts[ind] = nepisodes
 
         time_history[ind+1] = sys.clock() - start_time
@@ -205,7 +205,7 @@ while step < opt.steps do
                                 model = agent.network,
                                 best_model = agent.best_network,
                                 reward_history = reward_history,
-				obj_loss_history = obj_loss_history,
+				                obj_loss_history = obj_loss_history,
                                 reward_counts = reward_counts,
                                 episode_counts = episode_counts,
                                 time_history = time_history,
