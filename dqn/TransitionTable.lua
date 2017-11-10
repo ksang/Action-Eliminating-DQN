@@ -67,6 +67,7 @@ function trans:__init(args)
     self.recent_a_o = {}
     self.recent_bad_command  = {}
     self.take_action_index = {}
+    self.good_take_action_index = {}
 
     local s_size = self.stateDim*histLen
 
@@ -120,16 +121,27 @@ function trans:fill_buffer()
         self.buf_s2[buf_ind]:copy(s2)
         self.buf_term[buf_ind] = term
     end
+    local size_take = #self.take_action_index
+    local size_g_take = #self.good_take_action_index
+    assert(size_g_take > 1 and size_take > 1)
+    local ratio =size_g_take/size_take
+
     -- fill object related buffers
     for buf_ind=1,self.bufferSize do
 
         local s, a,r,s2,t,a_o,bad_command, index
 	repeat 
-	index = self.take_action_index[torch.random(#self.take_action_index)] - self.recentMemSize +1
-	until index > 1
-	s, a,r,s2,t,a_o,bad_command = self:get(index)
+            if torch.uniform() < 1 - ratio - 0.1 then 	--bias samples to favor at least 10% good actions
+		--sample any take action
+		index = self.take_action_index[torch.random(#self.take_action_index)]
+	    else 
+		-- prioritize good take actions to amend rep bias
+		index = self.good_take_action_index[torch.random(#self.good_take_action_index)]
+	    end 
+	until index - self.recentMemSize > 0 -- for state concatination
+	s, a, r, s2 ,t, a_o, bad_command = self:get(index -self.recentMemSize +1) -- sample from the transition table
         --print ("total object action sampled",#self.take_action_index)
-        assert(a_o ~= 0)
+        assert(a_o ~= 0) --here we should not have none object action
 
         self.buf_s_for_obj[buf_ind]:copy(s)
         self.buf_a_for_obj[buf_ind] = a
@@ -149,6 +161,11 @@ function trans:fill_buffer()
     end
 end
 
+function trans:report()
+	print("action table size " .. self.numEntries)
+	print("general take actions ratio " .. #self.take_action_index/self.numEntries)
+	print("good vs bad take actions ratio " .. #self.good_take_action_index/#self.take_action_index)
+end
 
 function trans:sample_one()
     assert(self.numEntries > 1)
@@ -346,10 +363,13 @@ function trans:add(s, a, r, term, a_o,bad_command)
     if self.insertIndex > self.maxSize then
         self.insertIndex = 1
     end
-    if self.numEntries == self.maxSize and self.insertIndex  == self.take_action_index[1] then
+    if self.numEntries == self.maxSize then 
+	if self.insertIndex  == self.take_action_index[1] then
       --[[once table is full this ensures the action index list doesnt point to tuples which
        have been removed due to the index wrap around]]
-      table.remove(self.take_action_index,1)
+          table.remove(self.take_action_index,1) end
+	if self.insertIndex  == self.good_take_action_index[1] then
+          table.remove(self.good_take_action_index,1) end
     end
     -- Overwrite (s,a,r,t) at insertIndex
     self.s[self.insertIndex] = s:clone():float():mul(255)
@@ -359,7 +379,9 @@ function trans:add(s, a, r, term, a_o,bad_command)
     self.bad_command[self.insertIndex] = bad_command
 
     if ((a < 13) and (a > 7)) then --take action recorded
-      table.insert(self.take_action_index,self.insertIndex)
+      table.insert(self.take_action_index,self.insertIndex) --save table index
+      if (bad_command == 0) then 	-- if this is a good action save the index in an aux table for later sample balancing
+	table.insert(self.good_take_action_index, self.insertIndex) end
       --print(a)
       --assert(a_o~=0)
     end
@@ -467,6 +489,7 @@ function trans:read(file)
     self.recent_bad_command = {}
     self.recent_t = {}
     self.take_action_index = {}
+    self.good_take_action_index = {}
 
     self.buf_a      = torch.LongTensor(self.bufferSize):fill(0)
     self.buf_r      = torch.zeros(self.bufferSize)
