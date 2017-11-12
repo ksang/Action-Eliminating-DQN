@@ -130,30 +130,30 @@ function trans:fill_buffer()
     for buf_ind=1,self.bufferSize do
 
         local s, a,r,s2,t,a_o,bad_command, index
-	repeat 
+	      repeat 
             if torch.uniform() < 1 - ratio - 0.1 then 	--bias samples to favor at least 10% good actions
-		--sample any take action
-		index = self.take_action_index[torch.random(#self.take_action_index)]
-	    else 
-		-- prioritize good take actions to amend rep bias
-		index = self.good_take_action_index[torch.random(#self.good_take_action_index)]
-	    end 
-	until index - self.recentMemSize > 0 -- for state concatination
-	s, a, r, s2 ,t, a_o, bad_command = self:get(index -self.recentMemSize +1) -- sample from the transition table
+		        --sample any take action
+		            index = self.take_action_index[torch.random(#self.take_action_index)]
+	          else 
+		            -- prioritize good take actions to amend rep bias
+		            index = self.good_take_action_index[torch.random(#self.good_take_action_index)]
+	          end 
+	      until index - self.recentMemSize > 2 and index < self.numEntries - self.recentMemSize-- for state concatination
+
+	      s, a, r, s2 ,t, a_o, bad_command = self:get(index -self.recentMemSize +1) -- sample from the transition table
         --print ("total object action sampled",#self.take_action_index)
         assert(a_o ~= 0) --here we should not have none object action
 
         self.buf_s_for_obj[buf_ind]:copy(s)
         self.buf_a_for_obj[buf_ind] = a
-	self.buf_a_o[buf_ind]  = a_o
-	self.buf_bad_command[buf_ind] = bad_command
-
+	      self.buf_a_o[buf_ind]  = a_o
+	      self.buf_bad_command[buf_ind] = bad_command
     end
-
 
     self.buf_s  = self.buf_s:float():div(255)
     self.buf_s2 = self.buf_s2:float():div(255)
     self.buf_s_for_obj = self.buf_s_for_obj:float():div(255)
+
     if self.gpu and self.gpu >= 0 then
         self.gpu_s:copy(self.buf_s)
         self.gpu_s2:copy(self.buf_s2)
@@ -162,9 +162,9 @@ function trans:fill_buffer()
 end
 
 function trans:report()
-	print("action table size " .. self.numEntries)
-	print("general take actions ratio " .. #self.take_action_index/self.numEntries)
-	print("good vs bad take actions ratio " .. #self.good_take_action_index/#self.take_action_index)
+	  print("action table size " .. self.numEntries)
+	  print("general take actions ratio " .. #self.take_action_index/self.numEntries)
+	  print("good vs bad take actions ratio " .. #self.good_take_action_index/#self.take_action_index)
 end
 
 function trans:sample_one()
@@ -325,19 +325,12 @@ function trans:get_recent()
     return self:concatFrames(1, true):float():div(255)
 end
 
-
 function trans:get(index)
     local s = self:concatFrames(index)
     local s2 = self:concatFrames(index+1)
     local ar_index = index+self.recentMemSize-1  --why?!??!?!?
 
     return s, self.a[ar_index], self.r[ar_index], s2, self.t[ar_index+1], self.a_o[ar_index], self.bad_command[ar_index]
-end
-function trans:get2(index)
-    local s = self:concatFrames(index)
-    local ar_index = index
-
-    return s, self.a[ar_index], self.a_o[ar_index], self.bad_command[ar_index]
 end
 
 function trans:add(s, a, r, term, a_o,bad_command)
@@ -364,12 +357,14 @@ function trans:add(s, a, r, term, a_o,bad_command)
         self.insertIndex = 1
     end
     if self.numEntries == self.maxSize then 
-	if self.insertIndex  == self.take_action_index[1] then
-      --[[once table is full this ensures the action index list doesnt point to tuples which
-       have been removed due to the index wrap around]]
-          table.remove(self.take_action_index,1) end
-	if self.insertIndex  == self.good_take_action_index[1] then
-          table.remove(self.good_take_action_index,1) end
+	      if self.insertIndex  == self.take_action_index[1] then
+            --[[once table is full this ensures the action index list doesnt point to tuples which
+             have been removed due to the index wrap around]]
+                table.remove(self.take_action_index,1) 
+        end
+	      if self.insertIndex  == self.good_take_action_index[1] then
+                table.remove(self.good_take_action_index,1) 
+        end
     end
     -- Overwrite (s,a,r,t) at insertIndex
     self.s[self.insertIndex] = s:clone():float():mul(255)
@@ -379,11 +374,11 @@ function trans:add(s, a, r, term, a_o,bad_command)
     self.bad_command[self.insertIndex] = bad_command
 
     if ((a < 13) and (a > 7)) then --take action recorded
-      table.insert(self.take_action_index,self.insertIndex) --save table index
-      if (bad_command == 0) then 	-- if this is a good action save the index in an aux table for later sample balancing
-	table.insert(self.good_take_action_index, self.insertIndex) end
-      --print(a)
-      --assert(a_o~=0)
+        table.insert(self.take_action_index,self.insertIndex) --save table index
+        if (bad_command == 0) then 	-- if this is a good action save the index in an aux table for later sample balancing
+	          table.insert(self.good_take_action_index, self.insertIndex) 
+	      end
+            --assert(a_o~=0)
     end
 
     if term then
