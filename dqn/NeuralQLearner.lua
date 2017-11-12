@@ -93,8 +93,8 @@ function nql:__init(args)
 
     end
     -- set object network loss for multi lable learning
-    self.objNetLoss = nn.MultiLabelSoftMarginCriterion() --need to remove sigmoid activation from the network
-    --self.objNetLoss = nn.BCECriterion()
+    --self.objNetLoss = nn.MultiLabelSoftMarginCriterion() --need to remove sigmoid activation from the network
+    self.objNetLoss = nn.BCECriterion()
     self.optimState = {learningRate = 0.000013}--,learningRateDecay = 0.01}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
     self.last_object_net_accuracy = 0
     -- end of object network init
@@ -312,12 +312,12 @@ function nql:qLearnMinibatch()
     -- accumulate update
     self.deltas:mul(0):addcdiv(self.lr, self.dw, self.tmp)
     self.w:add(self.deltas)
-    self:objLearnMiniBatch(s_for_obj,a_for_obj,a_o, bad_command) -- now train obj network
+    --self:objLearnMiniBatch(s_for_obj,a_for_obj,a_o, bad_command) -- now train obj network
 end
 
 function nql:setYbuff(action_object, bad_command, validation)
 
-  --@FIXME this is ugly, cant seem to change the needed buffer when using the buffer as argument
+   --@FIXME this is ugly, cant seem to change the needed buffer when using the buffer as argument
    if validation then
    self.valid_Y_buff = self.valid_Y_buff:zero() + 0.5 -- 2d buffer of size minibatchXnum_objects set 0.5 to unknown entries
    --print("before",buff)
@@ -338,7 +338,7 @@ function nql:setYbuff(action_object, bad_command, validation)
    end
 
    if self.gpu >=0 then
-	 if validation then self.valid_Y_buff:cuda() else self.Y_buff:cuda() end
+	 if validation then self.valid_Y_buff:cuda() --[[else self.Y_buff:cuda()]] end
    end
    --print ("@DEBUG - Y valid buff", buff)
 end
@@ -346,23 +346,23 @@ end
 
 -- only object related samples in the batch, maybe add some normal samples?
 function nql:objLearnMiniBatch(s,a,a_o,bad_command)
-  assert(self.transitions:size() > self.minibatch_size)
-     function feval()
+    assert(self.transitions:size() > self.minibatch_size)
+    function feval()
         self.obj_dw:zero()
         self:setYbuff(a_o, bad_command)
         --print("buffer after setting",self.Y_buff)
         --local grad_image = self.Y_buff:ne(0.5) -- maps which gradients we wish to keep
         --print("grad image",grad_image)
-        local h_x = self.obj_network:forward(s):cuda()
+        local h_x = self.obj_network:forward(s)--:cuda()
         local J = self.objNetLoss:forward(h_x, self.Y_buff)
         --print("@DEBUG loss calculated "..J, "\npredictions = \n","actual labels= \n",h_x,self.Y_buff) -- just for debugging purpose
-	--zero out none informative gradients
-	--local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda()]])
+	      --zero out none informative gradients
+	      --local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda()]])
         --print ("after cmul",dJ_dh_x)
-	local dJ_dh_x = self.objNetLoss:backward(h_x, self.Y_buff):cuda()
+	      local dJ_dh_x = self.objNetLoss:backward(h_x, self.Y_buff)--:cuda()
         self.obj_network:backward(s, dJ_dh_x) -- computes and updates gradTheta
-	return J, self.obj_dw
-     end
+	      return J, self.obj_dw
+    end
      optim.adam(feval, self.obj_w, self.optimState)
 end
 
@@ -503,7 +503,7 @@ end
 
 function nql:eGreedy(state, testing,testing_ep)
     if not testing then
-	self.ep = (self.ep_end +
+	      self.ep = (self.ep_end +
                 math.max(0, (self.ep_start - self.ep_end) * (self.ep_endt -
                 math.max(0, self.numSteps - self.learn_start))/self.ep_endt))
     else self.ep = testing_ep end
@@ -514,7 +514,7 @@ function nql:eGreedy(state, testing,testing_ep)
 
     -- Turn single state into minibatch.  Needed for convolutional nets.
     if state:dim() == 2 then
-	assert(false, 'Input must be at least 3D')
+	      assert(false, 'Input must be at least 3D')
         state = state:resize(1, state:size(1), state:size(2))
     end
 
@@ -524,28 +524,29 @@ function nql:eGreedy(state, testing,testing_ep)
 
     -- Epsilon greedy version which cuts the chance to explore "bad actions" by half
     if self.last_object_net_accuracy > 0.9 and self.numSteps > 3*self.learn_start then --start using object network insight
-	--prediction = nn.Sigmoid():forward(self.obj_network:forward(state)):float() --for MLSML criterion
-	prediction = self.obj_network:forward(state):float():squeeze() --for BCE cretirion network last layer is sigmoid.
+	      --prediction = nn.Sigmoid():forward(self.obj_network:forward(state)):float() --for MLSML criterion
+	      prediction = self.obj_network:forward(state):float():squeeze() --for BCE cretirion network last layer is sigmoid.
     end
 
     if torch.uniform() < self.ep then
-	actionIndex = torch.random(1, self.n_actions) --choose at random
-	if prediction then --restricted random action selection, else use standard exploration
-		a_o = self.actions[actionIndex].object or 0	-- extract relevant object
-		if a_o ~= 0 then --only for "take" actions use prediction to validate action
-		    repeat
-			--choose stricktly take action at random - this is to avoid vanishing "take" actions from replay mem
-			actionIndex = torch.random(8, 12)
-			a_o = self.actions[actionIndex].object -- extract relevant object
-			assert(a_o)
-			-- we consider only high confidence predictions - relaxation for under-represented (s,a) pairs
-			hard_prediction = prediction[a_o] > 0.65
-		        --print("prediction", prediction ,"hard prediction", hard_prediction,"for object"..a_o )
-		    -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
-		    until hard_prediction == true or (hard_prediction == false and torch.uniform() < 0.5)
-		end
-	end
-	return actionIndex
+	      actionIndex = torch.random(1, self.n_actions) --choose at random
+        if prediction then --restricted random action selection, else use standard exploration
+		        a_o = self.actions[actionIndex].object or 0	-- extract relevant object
+		        if a_o ~= 0 then --only for "take" actions use prediction to validate action
+		            repeat
+			              --choose stricktly take action at random - this is to avoid vanishing "take" actions from replay mem
+			              actionIndex = torch.random(8, 12)
+			              a_o = self.actions[actionIndex].object -- extract relevant object
+			              assert(a_o)
+			              -- we consider only high confidence predictions - relaxation for under-represented (s,a) pairs
+			              hard_prediction = prediction[a_o] > 0.65
+		                      --print("prediction", prediction ,"hard prediction", hard_prediction,"for object"..a_o )
+		                  -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
+		            until hard_prediction == true or (hard_prediction == false and torch.uniform() < 0.5)
+		         end
+	      end
+
+	      return actionIndex
 
     else --use greedy agent policy and pass along the raw prediction for this state
         return self:greedy(state,prediction)
@@ -555,7 +556,7 @@ end
 
 function nql:greedy(state,obj_net_prediction)
     -- Turn single state into minibatch.  Needed for convolutional nets.
-
+--[[
     if state:dim() == 2 then
         assert(false, 'Input must be at least 3D')
         state = state:resize(1, state:size(1), state:size(2))
@@ -564,7 +565,7 @@ function nql:greedy(state,obj_net_prediction)
     if self.gpu >= 0 then
         state = state:cuda()
     end
-
+]]
     local q = self.network:forward(state):float():squeeze()
     local maxq = q[1]
     local besta = {1}
@@ -573,23 +574,27 @@ function nql:greedy(state,obj_net_prediction)
     local best_objects, soft_object_prediction
 
     if obj_net_prediction then --not nil only if we have started using object net insight
-    -- flip 1 to 0 and 0 to 1 and create positive parse distribution over the objects
-	soft_object_prediction = nn.SoftMax():forward(1 - obj_net_prediction)
-    -- try to guess which are the most likely objects we would want to interact with, randomize to avoid optimal action starvation
-    best_objects = torch.multinomial(soft_object_prediction, 2)
-	--[[if self.ep==0 then print("test: actual prediction" ,obj_net_prediction,
-	    "\nsoft prediction ", soft_object_prediction,"\nbest choosen objects are" , best_objects) end]]
+        -- flip 1 to 0 and 0 to 1 and create positive parse distribution over the objects
+	      soft_object_prediction = nn.SoftMax():forward(1 - obj_net_prediction)
+        -- try to guess which are the most likely objects we would want to interact with, randomize to avoid optimal action starvation
+        best_objects = torch.multinomial(soft_object_prediction, 2)
+        
+        --[[--option b: use determenistic "maximum likelyhood" policy
+            best_objects = soft_object_prediction:sort()[{{4,5}}]
+        ]]
+	      --[[if self.ep==0 then print("test: actual prediction" ,obj_net_prediction,
+	        "\nsoft prediction ", soft_object_prediction,"\nbest choosen objects are" , best_objects) end]]
 
     else -- when we dont use the predictions for code simplicity consider all objects
-	best_objects = torch.range(1,NUM_TAKE_OBJECTS)
-	-- TODO generalize this per action and associated objects (maybe per object network output dim)
+	      best_objects = torch.range(1,NUM_TAKE_OBJECTS)
+	      -- TODO generalize this per action and associated objects (maybe per object network output dim)
     end
 
     -- Evaluate all other actions (with random tie-breaking)
     for a = 2, self.n_actions do
-	    --extract the current action object index
-	    local a_o = self.actions[a].object or 0
-	    --[[only consider non object or best_objects for the max operation assuming only 1 action interacts with objects
+	      --extract the current action object index
+	      local a_o = self.actions[a].object or 0
+	      --[[only consider non object or best_objects for the max operation assuming only 1 action interacts with objects
 	      (this needs to be expanded to more then one object network and categorized by action type)]]
         if a_o == 0 or best_objects:eq(a_o):sum() > 0 then
 
