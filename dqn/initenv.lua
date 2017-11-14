@@ -20,7 +20,8 @@ function torchSetup(_opt)
     _opt = _opt or {}
     local opt = table.copy(_opt)
     assert(opt)
-
+    --cons = require 'pl.pretty'
+    --cons.dump(opt)
     -- preprocess options:
     --- convert options strings to tables
     if opt.pool_frms then
@@ -116,10 +117,11 @@ function setup(_opt)
     assert(framework)
 
     local gameEnv = framework.GameEnvironment(opt)
-    local gameActions = gameEnv:getActions()
+    local gameActions, gameObjects = gameEnv:getActions()
 
     -- agent options
     _opt.agent_params.actions   = gameActions
+    _opt.agent_params.game_objects = gameObjects
     _opt.agent_params.gpu       = _opt.gpu
     _opt.agent_params.best      = _opt.best
     if _opt.network ~= '' then
@@ -147,6 +149,7 @@ end
 --- other functions
 
 function str_to_table(str)
+print("converting the string to table:\n",str)
     if type(str) == 'table' then
         return str
     end

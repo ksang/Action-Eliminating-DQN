@@ -12,6 +12,7 @@ local trans = torch.class('dqn.TransitionTable')
 function trans:__init(args)
     self.stateDim = args.stateDim
     self.numActions = args.numActions
+    self.numObjects = args.numObjects
     self.histLen = args.histLen
     self.maxSize = args.maxSize or 1024^2
     self.bufferSize = args.bufferSize or 1024
@@ -138,13 +139,12 @@ function trans:fill_buffer()
 		-- prioritize good take actions to amend rep bias
 		index = self.good_take_action_index[torch.random(#self.good_take_action_index)]
 	    end 
-	until index - self.recentMemSize > 0 -- for state concatination
+	until index - self.recentMemSize + 1 > 0 -- for state concatination
 	s, a, r, s2 ,t, a_o, bad_command = self:get(index -self.recentMemSize +1) -- sample from the transition table
-        --print ("total object action sampled",#self.take_action_index)
-        assert(a_o ~= 0) --here we should not have none object action
-
-        self.buf_s_for_obj[buf_ind]:copy(s)
-        self.buf_a_for_obj[buf_ind] = a
+    --print ("total object action sampled",#self.take_action_index)
+    assert(a_o ~= 0) --here we should not have none object action
+    self.buf_s_for_obj[buf_ind]:copy(s) 
+    self.buf_a_for_obj[buf_ind] = a
 	self.buf_a_o[buf_ind]  = a_o
 	self.buf_bad_command[buf_ind] = bad_command
 
@@ -378,7 +378,7 @@ function trans:add(s, a, r, term, a_o,bad_command)
     self.a_o[self.insertIndex] = a_o
     self.bad_command[self.insertIndex] = bad_command
 
-    if ((a < 13) and (a > 7)) then --take action recorded
+    if a_o~= 0 then --take action recorded
       table.insert(self.take_action_index,self.insertIndex) --save table index
       if (bad_command == 0) then 	-- if this is a good action save the index in an aux table for later sample balancing
 	table.insert(self.good_take_action_index, self.insertIndex) end

@@ -13,6 +13,7 @@ require "initenv"
 
 
 return function(args)
+  assert(args.n_objects)
   local in_row_s = 65
   local in_col = 300
   local in_hist = 4
@@ -24,8 +25,7 @@ return function(args)
   local n_filters = 2 -- number of filters per region size
   local tot_filters_s = table.getn(region_hight)*n_filters
   local tot_filters_a = 1*n_filters
-  local output_size = 5 --output of parallel networks (before dot product)
-
+  local output_size = args.n_objects
   ----------------------------
   -- NETWORK FOR STATES ONLY
   ----------------------------

@@ -106,14 +106,20 @@ local gameEnv = torch.class('ZorkFramework.GameEnvironment')
 function gameEnv:__init(_opt)
     print("@DEBUG Initializing zork framework")
 		--init game and define static actions
-		self._state={}
+        --cons = require 'pl.pretty'
+        --cons.dump(_opt.env_params)
+        assert(_opt.env_params.game_scenario)	--just a sanity check	
+        local scenario = _opt.env_params.game_scenario or 1
+        self._state={}
 		self._step_limit = 100
-    		self.tot_steps =0
-    		self.tot_inits =0
-    		self:newGame()
-		self.objects = {"egg","door","tree","leaves","nest"}
-		self._actions = {
-
+		self.tot_steps =0
+		self.tot_inits =0
+		self:newGame()
+        if scenario == 1 then --5 objects, open egg scenario
+            self._objects = {"egg","door","tree","leaves","nest"}
+		    self._actions = {
+            {action = "look",desc = "observe the environment"},
+            {action = "open egg",desc = "try to open item"},
 			{action = "go east"	,desc = "move east"},
 			{action = "go west"	,desc = "move west"},
 			{action = "go north",desc = "move north"},
@@ -121,20 +127,136 @@ function gameEnv:__init(_opt)
 			{action = "go up"		,desc = "move up"},
 			{action = "go down"	,desc = "move down"},
 			{action = "climb tree",desc = "climb up the large tree"},
-			--{action = "take egg",desc = "take valuable item"},
+            {action = "turn lamp on",desc = "turn the light on"},
+			{action = "take egg",desc = "take item" , object = 1},
+			{action = "take door",desc = "take item" , object = 2},
+			{action = "take tree",desc = "take item" , object = 3},
+			{action = "take leaves",desc = "take item" , object = 4},
+			{action = "take nest",desc = "take item" , object = 5}
+			--{action = "open the",desc = "try to open item", objects = {"egg","door","tree","leaves","nest"} }, --this is an example format for parametric actions	
+		    }
+		    self._terminal_string = "There is no obvious way to open the egg.\0"
+        
+        elseif scenario == 2 then --20 objects, open egg scenario	
+            self._objects = {"egg","door","tree","leaves","nest","bag","bottle","rope","sword","lantern","knife","mat","mailbox","rug","case","axe","diamod","leaflet","news","brick"}
+		    self._actions = {
+            {action = "look",desc = "observe the environment"},
+            {action = "open egg",desc = "try to open item"},
+			{action = "go east"	,desc = "move east"},
+			{action = "go west"	,desc = "move west"},
+			{action = "go north",desc = "move north"},
+			{action = "go south",desc = "move south"},
+			{action = "go up"	,desc = "move up"},
+			{action = "go down"	,desc = "move down"},
+			{action = "climb tree",desc = "climb up the large tree"},
+            {action = "turn lamp on",desc = "turn the light on"},
 			{action = "take egg",desc = "take item" , object = 1},
 			{action = "take door",desc = "take item" , object = 2},
 			{action = "take tree",desc = "take item" , object = 3},
 			{action = "take leaves",desc = "take item" , object = 4},
 			{action = "take nest",desc = "take item" , object = 5},
-			{action = "open egg",desc = "try to open item"},			
-			--{action = "open the",desc = "try to open item", objects = {"egg","door","tree","leaves","nest","mailbox"} },
-      			{action = "look",desc = "observe the environment"}
-			--[[ TODO consider adding special actions where the first agent chooses to interact with, may need to ensure this is always choosen in some higher probability when training]]--
-		}
-		--define step cost
-		self._step_penalty = -1
-		self._terminal_string = "There is no obvious way to open the egg.\0"
+			{action = "take bag",desc = "take item" , object = 6},
+            {action = "take bottle",desc = "take item" , object = 7},
+            {action = "take rope",desc = "take item" , object = 8},
+            {action = "take sword",desc = "take item" , object = 9},
+            {action = "take lantern",desc = "take item" , object = 10},
+            {action = "take knife",desc = "take item" , object = 11},
+            {action = "take mat",desc = "take item" , object = 12},
+            {action = "take mailbox",desc = "take item" , object = 13},
+            {action = "take rug",desc = "take item" , object = 14},
+            {action = "take case",desc = "take item" , object = 15},
+            {action = "take axe",desc = "take item" , object = 16},
+            {action = "take diamond",desc = "take item" , object = 17},
+            {action = "take leaflet",desc = "take item" , object = 18},
+            {action = "take news",desc = "take item" , object = 19},
+            {action = "take brick",desc = "take item" , object = 20}
+		    }
+		    self._terminal_string = "There is no obvious way to open the egg.\0"
+
+elseif _opt and _opt.game_scenario == 3 then 
+            self._objects = {"egg","door","tree","leaves","nest","bag","bottle","rope","sword","lantern","knife","mat","mailbox","rug","case","axe","diamod","leaflet","news","brick"}
+		    self._actions = {
+            {action = "look",desc = "observe the environment"},
+            {action = "open egg",desc = "try to open item"},
+			{action = "go east"	,desc = "move east"},
+			{action = "go west"	,desc = "move west"},
+			{action = "go north",desc = "move north"},
+			{action = "go south",desc = "move south"},
+			{action = "go up"	,desc = "move up"},
+			{action = "go down"	,desc = "move down"},
+			{action = "climb tree",desc = "climb up the large tree"},
+            {action = "turn lamp on",desc = "turn the light on"},
+			{action = "take egg",desc = "take item" , object = 1},
+			{action = "take door",desc = "take item" , object = 2},
+			{action = "take tree",desc = "take item" , object = 3},
+			{action = "take leaves",desc = "take item" , object = 4},
+			{action = "take nest",desc = "take item" , object = 5},
+			{action = "take bag",desc = "take item" , object = 6},
+            {action = "take bottle",desc = "take item" , object = 7},
+            {action = "take rope",desc = "take item" , object = 8},
+            {action = "take sword",desc = "take item" , object = 9},
+            {action = "take lantern",desc = "take item" , object = 10},
+            {action = "take knife",desc = "take item" , object = 11},
+            {action = "take mat",desc = "take item" , object = 12},
+            {action = "take mailbox",desc = "take item" , object = 13},
+            {action = "take rug",desc = "take item" , object = 14},
+            {action = "take case",desc = "take item" , object = 15},
+            {action = "take axe",desc = "take item" , object = 16},
+            {action = "take diamond",desc = "take item" , object = 17},
+            {action = "take leaflet",desc = "take item" , object = 18},
+            {action = "take news",desc = "take item" , object = 19},
+            {action = "take brick",desc = "take item" , object = 20}
+		    }
+
+            for i=21, 200 do --extend the number of operations artificially with garbage actions
+                table.insert(self._objects,"garbage")
+                table.insert(self._actions,{action = "take garbage",desc = "garbage take action" , object = i} )
+            end
+		    self._terminal_string = "There is no obvious way to open the egg.\0"
+		    
+--[[   elseif _opt and _opt.game_scenario == 4 then -- 20 objects enter the underground world scenario TODO 
+            self._objects = {"egg","door","tree","leaves","nest","bag","bottle","rope","sword","lantern","knife","matt","mailbox","rug","case","axe","diamod","leaflet","news","brick"}
+		    self._actions = {
+            {action = "look",desc = "observe the environment"},
+            {action = "open egg",desc = "try to open item"},
+			{action = "go east"	,desc = "move east"},
+			{action = "go west"	,desc = "move west"},
+			{action = "go north",desc = "move north"},
+			{action = "go south",desc = "move south"},
+			{action = "go up"		,desc = "move up"},
+			{action = "go down"	,desc = "move down"},
+			{action = "climb tree",desc = "climb up the large tree"},
+            {action = "turn lamp on",desc = "turn the light on"},
+            {action = "move rug",desc = "move the large rug aside"}, --
+            {action = "open trap door",desc = "open a celler door"}, -- these actions allow the agent to enter the underground world
+			{action = "take egg",desc = "take item" , object = 1},
+			{action = "take door",desc = "take item" , object = 2},
+			{action = "take tree",desc = "take item" , object = 3},
+			{action = "take leaves",desc = "take item" , object = 4},
+			{action = "take nest",desc = "take item" , object = 5},
+			{action = "take bag",desc = "take item" , object = 6},
+            {action = "take bottle",desc = "take item" , object = 7},
+            {action = "take rope",desc = "take item" , object = 8},
+            {action = "take sword",desc = "take item" , object = 9},
+            {action = "take lantern",desc = "take item" , object = 10},
+            {action = "take knife",desc = "take item" , object = 11},
+            {action = "take matt",desc = "take item" , object = 12},
+            {action = "take mailbox",desc = "take item" , object = 13},
+            {action = "take rug",desc = "take item" , object = 14},
+            {action = "take case",desc = "take item" , object = 15},
+            {action = "take axe",desc = "take item" , object = 16},
+            {action = "take diamond",desc = "take item" , object = 17},
+            {action = "take leaflet",desc = "take item" , object = 18},
+            {action = "take news",desc = "take item" , object = 19},
+            {action = "take brick",desc = "take item" , object = 20}
+      			
+		    }
+
+		    self._terminal_string = "There is no obvious way to open the egg.\0" 
+]]
+    end
+    --define step cost	
+	self._step_penalty = -1
   	return self
 end
 
@@ -220,7 +342,7 @@ end
 
 -- Function returns a table with valid actions in the current game.
 function gameEnv:getActions()
-      return self._actions
+      return self._actions, self._objects
 end
 
 
