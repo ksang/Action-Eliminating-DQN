@@ -18,7 +18,7 @@ scenario=$SCENAR                      #select scenarion: #2 - 20 objects, short 
 obj_lr=0.000013
 env_params="game_scenario="$scenario""
 game_path=$PWD"/dqn/zork"
-agent_name=$agent_type"_"$1"_FC_"$agent_tweak"_scenario_"$scenario"_lr1.7e7_200a"
+agent_name=$agent_type"_"$ENV"_FC_"$agent_tweak"_scenario_"$scenario
 #####################################################
 
 agent="NeuralQLearner"
