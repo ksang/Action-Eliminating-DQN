@@ -126,7 +126,7 @@ while step < opt.steps do
             local action_index,a_o = agent:perceive(reward, screen, terminal, true, 0)--0.05) -- a_o : object for action assume only 1 for now
             -- Play game in test mode (episodes don't end when losing a life)
             screen, reward, terminal,new_state_string,bad_command = game_env:step(game_actions[action_index])
-	        agent.lastAction_bad = bad_command -- update agent feedback on syntax flag for last command
+	          agent.lastAction_bad = bad_command -- update agent feedback on syntax flag for last command
             if a_o ~= 0 then
               eval_bad_command = eval_bad_command + bad_command
               eval_tot_obj_actions = eval_tot_obj_actions + 1
@@ -138,7 +138,7 @@ while step < opt.steps do
 
             -- record every reward
             episode_reward = episode_reward + reward
-            if reward ~= 0 then
+            if reward > 0 then
                nrewards = nrewards + 1
             end
 
@@ -150,40 +150,40 @@ while step < opt.steps do
             end
         end
 
-        eval_time = sys.clock() - eval_time
-        start_time = start_time + eval_time
+      eval_time = sys.clock() - eval_time
+      start_time = start_time + eval_time
 	    local ind = #reward_history+1
 	    obj_loss_history[ind] = agent:compute_validation_statistics() -- update loss for obj network
-        total_reward = total_reward/math.max(1, nepisodes)
+      total_reward = total_reward/math.max(1, nepisodes)
 
-        if #reward_history == 0 or total_reward > torch.Tensor(reward_history):max() then
-            agent.best_network = agent.network:clone()
-        end
+      if #reward_history == 0 or total_reward > torch.Tensor(reward_history):max() then
+          agent.best_network = agent.network:clone()
+      end
 
-        if agent.v_avg then
-            v_history[ind] = agent.v_avg
-            td_history[ind] = agent.tderr_avg
-            qmax_history[ind] = agent.q_max
-        end
-        print("V", v_history[ind], "TD error", td_history[ind], "Qmax", qmax_history[ind])
-        print("bad commands issued on objects during eval", eval_bad_command/eval_tot_obj_actions)
-        reward_history[ind] = total_reward
+      if agent.v_avg then
+          v_history[ind] = agent.v_avg
+          td_history[ind] = agent.tderr_avg
+          qmax_history[ind] = agent.q_max
+      end
+      print("V", v_history[ind], "TD error", td_history[ind], "Qmax", qmax_history[ind])
+      print("bad commands issued on objects during eval", eval_bad_command/eval_tot_obj_actions)
+      reward_history[ind] = total_reward
 	    reward_counts[ind] = nrewards
-        episode_counts[ind] = nepisodes
+      episode_counts[ind] = nepisodes
 
-        time_history[ind+1] = sys.clock() - start_time
+      time_history[ind+1] = sys.clock() - start_time
 
-        local time_dif = time_history[ind+1] - time_history[ind]
+      local time_dif = time_history[ind+1] - time_history[ind]
 
-        local training_rate = opt.actrep*opt.eval_freq/time_dif
+      local training_rate = opt.actrep*opt.eval_freq/time_dif
 
-        print(string.format(
-            '\nSteps: %d (frames: %d), reward: %.2f, epsilon: %.2f, lr: %G, ' ..
-            'training time: %ds, training rate: %dfps, testing time: %ds, ' ..
-            'testing rate: %dfps,  num. ep.: %d,  num. rewards: %d',
-            step, step*opt.actrep, total_reward, agent.ep, agent.lr, time_dif,
-            training_rate, eval_time, opt.actrep*opt.eval_steps/eval_time,
-            nepisodes, nrewards))
+      print(string.format(
+          '\nSteps: %d (frames: %d), reward: %.2f, epsilon: %.2f, lr: %G, ' ..
+          'training time: %ds, training rate: %dfps, testing time: %ds, ' ..
+          'testing rate: %dfps,  num. ep.: %d,  num. rewards: %d',
+          step, step*opt.actrep, total_reward, agent.ep, agent.lr, time_dif,
+          training_rate, eval_time, opt.actrep*opt.eval_steps/eval_time,
+          nepisodes, nrewards))
     end
 
     if step % opt.save_freq == 0 or step == opt.steps then

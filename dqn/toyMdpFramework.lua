@@ -97,12 +97,12 @@ end
 local gameEnv = torch.class('toyMdpFramework.GameEnvironment')
 local game = {
     {next_stage = {1,2}, descriptor = "Go Left" ,reward= 0,terminal = false },        -- 1
-    {next_stage = {8,3}, descriptor = "Dont Go Left" ,reward= 0,terminal = false },  -- 2
-    {next_stage = {2,6}, descriptor = "Dont Go Right" ,reward= 0,terminal = false }, -- 3
+    {next_stage = {8,3}, descriptor = "Dont Go Left" ,reward= 0,terminal = false },   -- 2
+    {next_stage = {2,6}, descriptor = "Dont Go Right" ,reward= 0,terminal = false },  -- 3
     {next_stage = {6,5}, descriptor = "Go Right" ,reward= 0,terminal = false },       -- 4
     {next_stage = {1,6}, descriptor = "Go Left" ,reward= 0,terminal = false },        -- 5
-    {next_stage = {9,5}, descriptor = "Dont Go Left" ,reward= 0,terminal = false },  -- 6
-    {next_stage = {3,10}, descriptor = "Dont Go Right" ,reward= 0,terminal = false },-- 7
+    {next_stage = {9,5}, descriptor = "Dont Go Left" ,reward= 0,terminal = false },   -- 6
+    {next_stage = {3,10}, descriptor = "Dont Go Right" ,reward= 0,terminal = false }, -- 7
     {next_stage = {7,3}, descriptor = "Go Right" ,reward= 0,terminal = false },       -- 8
     {next_stage = {4,10}, descriptor = "Go Left" ,reward= 0,terminal = false },       -- 9
     {next_stage = {10,10}, descriptor = "Win" ,reward= 10,terminal = true }           --10
@@ -124,14 +124,14 @@ function gameEnv:__init(_opt)
 		embbedingTable()
 		self._state={}
 		self._state.reward = 0
-    self._state.terminal = false
+        self._state.terminal = false
 		self._state.observation = textEmbedding("Go Left")
 		self._step_limit = 100
 		local LEFT = 1
 		local RIGHT = 2
 		self._actions= {LEFT,RIGHT}
 		self._current_stage = 1
-    self._step_penalty = -1
+        self._step_penalty = -1
 
   return self
 end

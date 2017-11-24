@@ -118,7 +118,7 @@ function trans:fill_buffer()
 
         self.buf_s[buf_ind]:copy(s)
         self.buf_a[buf_ind] = a
-	      self.buf_r[buf_ind] = r
+        self.buf_r[buf_ind] = r
         self.buf_s2[buf_ind]:copy(s2)
         self.buf_term[buf_ind] = term
     end
