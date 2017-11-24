@@ -25,9 +25,11 @@ function nql:__init(args)
     self.objects    = args.game_objects
     self.n_objects  = #args.game_objects
     self.object_restrict_thresh = args.obj_explore_thresh or 0.5
+    self.obj_drop_prob = args.obj_drop_prob or 0.5
     self.obj_thresh_acc = args.obj_thresh or 0
-
+    self.obj_network = args.obj_net_file or 'conv_obj_net'
     self.obj_start = args.obj_start*args.learn_start or args.learn_start or 0
+    self.obj_lr = args.obj_lr or 0.0001
     assert(self.obj_start >= 1)
     assert(self.obj_thresh_acc >= 0 and self.obj_thresh_acc < 1)
     self.obj_sample = args.obj_sample or 0
@@ -49,7 +51,7 @@ function nql:__init(args)
     end
     assert( self.obj_max+self.obj_sample > 0 or self.agent_tweak == VANILLA or self.agent_tweak == EXPLORE)
 --#########################################
-        self.verbose    = args.verbose
+    self.verbose    = args.verbose
     self.best       = args.best
 
     --- epsilon annealing
@@ -123,7 +125,7 @@ function nql:__init(args)
 --  init obj network
     self.Y_buff         = torch.CudaTensor(self.minibatch_size,self.n_objects) -- buffer for multiclass labels
     self.valid_Y_buff   = torch.CudaTensor(self.valid_size,self.n_objects)
-    self.obj_network = 'conv_obj_net'
+
     local msg, err = pcall(require, self.obj_network)
     if not msg then
         -- try to load saved agent
@@ -145,7 +147,7 @@ function nql:__init(args)
     -- set object network loss for multi lable learning
     --self.objNetLoss = nn.MultiLabelSoftMarginCriterion() --need to remove sigmoid activation from the network
     self.objNetLoss = nn.BCECriterion()
-    self.optimState = {learningRate = 0.000013}--,learningRateDecay = 0.01}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
+    self.optimState = {learningRate = self.obj_lr}--,learningRateDecay = 0.01}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
     self.last_object_net_accuracy = 0
     -- end of object network init
 --#########################################
@@ -436,7 +438,7 @@ function nql:compute_validation_statistics()
     self.v_avg = self.q_max * q2_max:mean()
     self.tderr_avg = delta:clone():abs():mean()
 --#########################################
-    if self.agent_tweak ~= 0 then -- calc object net validation info
+    if self.agent_tweak ~= VANILA then -- calc object net validation info
         self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
         --print(self.valid_Y_buff)
         local h_x = self.obj_network:forward(self.valid_s_for_obj):cuda()
@@ -592,7 +594,7 @@ function nql:eGreedy(state, testing,testing_ep)
           			    hard_prediction = prediction[a_o] > self.object_restrict_thresh
     		            --print("prediction", prediction ,"hard prediction", hard_prediction,"for object"..a_o )
     		            -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
-    		        until hard_prediction == true or (hard_prediction == false and torch.uniform() < 0.5)
+    		        until hard_prediction == true or (hard_prediction == false and torch.uniform() <  1- self.obj_drop_prob)
   		      end
 	      end
 	      return actionIndex
