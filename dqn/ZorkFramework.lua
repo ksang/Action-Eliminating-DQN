@@ -161,20 +161,20 @@ function gameEnv:__init(_opt)
     if scenario > 1 then
         -- extend to 20 objects
         self._objects = concatTable(basic_objects,obj_ext1)
+        if scenario >= 4 then --extended quest actions and intermidiate rewards
+            self._additional_rewards['There is no obvious way to open the egg.\0']=50   
+            self._additional_rewards['The door crashes shut, and you hear someone barring it.\0']=20   
+            self._terminal_string = "Your sword is no longer glowing."
+            --enable exteded quest with none object actions
+            self._actions = concatTable(self._actions,action_ext1)
+        else --scenario 3 and lower are stardard short quests
+            self._terminal_string = "There is no obvious way to open the egg.\0"     
+        end        
         if scenario == 4 or scenario == 3 then 
-            if scenario == 4 then --extended quest actions and intermidiate rewards
-                self._additional_rewards['There is no obvious way to open the egg.\0']=50   
-                self._additional_rewards['The door crashes shut, and you hear someone barring it.\0']=20   
-                self._terminal_string = "Your sword is no longer glowing."
-                --enable exteded quest with none object actions
-                self._actions = concatTable(self._actions,action_ext1)
-            end
             --extend the number of operations artificially with garbage actions
             for i=#self._objects + 1, 200 do 
                 table.insert(self._objects,"garbage")
             end
-        else -- standard short quest
-            self._terminal_string = "There is no obvious way to open the egg.\0"     
         end
     end
     --attach object actions
