@@ -200,8 +200,8 @@ while step < opt.steps do
         if opt.save_versions > 0 then
             filename = filename .. "_" .. math.floor(step / opt.save_versions)
         end
-        filename = filename
-        torch.save(filename .. ".t7", {agent = agent,
+        filename = filename  .. "_lr" .. agent.lr .."_" ..agent.n_actions.."a"
+        torch.save(filename ..".t7", {agent = agent,
                                 model = agent.network,
                                 best_model = agent.best_network,
                                 reward_history = reward_history,
