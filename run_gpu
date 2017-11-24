@@ -46,8 +46,8 @@ agent_params="obj_lr="$obj_lr",lr="$lr",ep=1,ep_end="$eps_end",ep_endt="$eps_end
 steps=10000000 #50000000
 eval_freq=10000 #250000 # can change ratio between steps and eval_freq to get more samples
 eval_steps=5000 #125000
-prog_freq=3000 #10000
-save_freq=40000 #125000
+prog_freq=5000 #10000
+save_freq=150000 #125000
 gpu=0
 random_starts=0
 pool_frms="type="$pool_frms_type",size="$pool_frms_size

@@ -104,14 +104,15 @@ local gameEnv = torch.class('ZorkFramework.GameEnvironment')
 --@ opt: arguments passed from terminal when session is launched.
 
 function gameEnv:__init(_opt)
-        
+
     print("@DEBUG Initializing zork framework".._opt.env_params.game_scenario)
 	--init game and define static actions
     --cons = require 'pl.pretty'
     --cons.dump(_opt.env_params)
     assert(_opt.env_params.game_scenario)	--just a sanity check
     local scenario = _opt.env_params.game_scenario or 1
-    self._additional_rewards = {}        
+    self.scenario = scenario
+    self._additional_rewards = {}
     self._state={}
     self._step_limit = 100
     self.tot_steps = 0
@@ -119,12 +120,12 @@ function gameEnv:__init(_opt)
     self:newGame()
     --creates object actions for an object list
     function genObjActionTable(obj_list)
-        local act = {}            
+        local act = {}
         -- registers entries like this: {action = "take egg",desc = "take item" , object = 1}, ..
         table.foreach(obj_list,function(k,v) table.insert(act,{action="take "..v,desc="take item",object = k}) end)
         return act
     end
-    
+
     function concatTable(src1,src2)
         table.foreach(src2,function(k,v) table.insert(src1,v) end)
         return src1
@@ -138,10 +139,10 @@ function gameEnv:__init(_opt)
         {action = "go south",desc = "move south"},
         {action = "go up"	,desc = "move up"},
         {action = "go down"	,desc = "move down"},
-        {action = "climb tree",desc = "climb up the large tree"}, 
+        {action = "climb tree",desc = "climb up the large tree"},
         --give the agent another chance to observe its environment
-        {action = "look",desc = "observe the environment"},           
-    } 
+        {action = "look",desc = "observe the environment"},
+    }
        -- self._actions = self.concatTable(basic_actions,genObjActionTable(self._objects))
     local basic_objects = {"egg","door","tree","leaves","nest"}
 
@@ -162,18 +163,18 @@ function gameEnv:__init(_opt)
     if scenario > 1 then
         -- extend to 20 objects
         self._objects = concatTable(basic_objects,obj_ext1)
-        if scenario >= 3 then 
+        if scenario >= 3 then
             --extend the number of operations artificially with garbage actions
-            for i=#self._objects + 1, 200 do 
+            for i=#self._objects + 1, 200 do
                 table.insert(self._objects,"garbage")
             end
             if scenario >= 4 then --extended quest actions and intermidiate rewards
-                self._additional_rewards['There is no obvious way to open the egg.\0']=50   
-                self._additional_rewards['The door crashes shut, and you hear someone barring it.\0']=20   
+                self._additional_rewards['There is no obvious way to open the egg.\0']=50
+                self._additional_rewards['The door crashes shut, and you hear someone barring it.\0']=20
                 self._terminal_string = "Your sword is no longer glowing."
                 --enable exteded quest with none object actions
                 self._actions = concatTable(self._actions,action_ext1)
-            end       
+            end
         end
     end
     --attach object actions
@@ -232,14 +233,17 @@ function gameEnv:step(action, training,obj_ind)
 	if result_string:match(self._terminal_string) then
 		terminal = true
 		reward = reward + 100 -- give additional reward
-	    print("@DEBUG: goal state reached in",zork.zorkGetNumMoves(),"steps")
+	  if self.scenario > 3 then  print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves().. " steps ####", training) end
 	end
     --check for any of the additional
-    table.foreach(self._additional_rewards,function(k,v) 
+    table.foreach(self._additional_rewards,function(k,v)
                                                 if result_string:match(k) then
                                                     reward = reward + v
                                                     self._additional_rewards[k]=0
-                                            	    print("@DEBUG: intermidiate goal state reached in",zork.zorkGetNumMoves(),"steps")
+                                                    if not training and v>0 then
+                                                        print("@DEBUG: intermidiate goal state :" .. k
+                                                        .." reached in",zork.zorkGetNumMoves(),"steps")
+                                                    end
                                                 end
                                             end
                  )
