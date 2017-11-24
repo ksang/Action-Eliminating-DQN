@@ -1,8 +1,9 @@
 require('ZorkFramework')
-opt={}
+opt={env_params={game_scenario=4}}
 print ()
 local gameEnv = ZorkFramework.GameEnvironment(opt)
-anomaly_count = 0
+local anomaly_count = 0
+local i=0
 for i=1, 1000 do
 	s,r,t,ss1 = gameEnv:newGame()
 	s,r,t,ss2 = gameEnv:step(gameEnv:getActions()[3],false) -- north
@@ -20,3 +21,5 @@ for i=1, 1000 do
 end
 print("iteration ended after num",i)
 print("with anomaly rate",anomaly_count/i)
+
+print(gameEnv:getActions())

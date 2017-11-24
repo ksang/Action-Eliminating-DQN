@@ -104,158 +104,82 @@ local gameEnv = torch.class('ZorkFramework.GameEnvironment')
 --@ opt: arguments passed from terminal when session is launched.
 
 function gameEnv:__init(_opt)
-    print("@DEBUG Initializing zork framework")
-		--init game and define static actions
-        --cons = require 'pl.pretty'
-        --cons.dump(_opt.env_params)
-        assert(_opt.env_params.game_scenario)	--just a sanity check	
-        local scenario = _opt.env_params.game_scenario or 1
-        self._state={}
-		self._step_limit = 100
-		self.tot_steps =0
-		self.tot_inits =0
-		self:newGame()
-        if scenario == 1 then --5 objects, open egg scenario
-            self._objects = {"egg","door","tree","leaves","nest"}
-		    self._actions = {
-            {action = "look",desc = "observe the environment"},
-            {action = "open egg",desc = "try to open item"},
-			{action = "go east"	,desc = "move east"},
-			{action = "go west"	,desc = "move west"},
-			{action = "go north",desc = "move north"},
-			{action = "go south",desc = "move south"},
-			{action = "go up"		,desc = "move up"},
-			{action = "go down"	,desc = "move down"},
-			{action = "climb tree",desc = "climb up the large tree"},
-            {action = "turn lamp on",desc = "turn the light on"},
-			{action = "take egg",desc = "take item" , object = 1},
-			{action = "take door",desc = "take item" , object = 2},
-			{action = "take tree",desc = "take item" , object = 3},
-			{action = "take leaves",desc = "take item" , object = 4},
-			{action = "take nest",desc = "take item" , object = 5}
-			--{action = "open the",desc = "try to open item", objects = {"egg","door","tree","leaves","nest"} }, --this is an example format for parametric actions	
-		    }
-		    self._terminal_string = "There is no obvious way to open the egg.\0"
         
-        elseif scenario == 2 then --20 objects, open egg scenario	
-            self._objects = {"egg","door","tree","leaves","nest","bag","bottle","rope","sword","lantern","knife","mat","mailbox","rug","case","axe","diamod","leaflet","news","brick"}
-		    self._actions = {
-            {action = "look",desc = "observe the environment"},
-            {action = "open egg",desc = "try to open item"},
-			{action = "go east"	,desc = "move east"},
-			{action = "go west"	,desc = "move west"},
-			{action = "go north",desc = "move north"},
-			{action = "go south",desc = "move south"},
-			{action = "go up"	,desc = "move up"},
-			{action = "go down"	,desc = "move down"},
-			{action = "climb tree",desc = "climb up the large tree"},
-            {action = "turn lamp on",desc = "turn the light on"},
-			{action = "take egg",desc = "take item" , object = 1},
-			{action = "take door",desc = "take item" , object = 2},
-			{action = "take tree",desc = "take item" , object = 3},
-			{action = "take leaves",desc = "take item" , object = 4},
-			{action = "take nest",desc = "take item" , object = 5},
-			{action = "take bag",desc = "take item" , object = 6},
-            {action = "take bottle",desc = "take item" , object = 7},
-            {action = "take rope",desc = "take item" , object = 8},
-            {action = "take sword",desc = "take item" , object = 9},
-            {action = "take lantern",desc = "take item" , object = 10},
-            {action = "take knife",desc = "take item" , object = 11},
-            {action = "take mat",desc = "take item" , object = 12},
-            {action = "take mailbox",desc = "take item" , object = 13},
-            {action = "take rug",desc = "take item" , object = 14},
-            {action = "take case",desc = "take item" , object = 15},
-            {action = "take axe",desc = "take item" , object = 16},
-            {action = "take diamond",desc = "take item" , object = 17},
-            {action = "take leaflet",desc = "take item" , object = 18},
-            {action = "take news",desc = "take item" , object = 19},
-            {action = "take brick",desc = "take item" , object = 20}
-		    }
-		    self._terminal_string = "There is no obvious way to open the egg.\0"
-
-elseif _opt and _opt.game_scenario == 3 then 
-            self._objects = {"egg","door","tree","leaves","nest","bag","bottle","rope","sword","lantern","knife","mat","mailbox","rug","case","axe","diamod","leaflet","news","brick"}
-		    self._actions = {
-            {action = "look",desc = "observe the environment"},
-            {action = "open egg",desc = "try to open item"},
-			{action = "go east"	,desc = "move east"},
-			{action = "go west"	,desc = "move west"},
-			{action = "go north",desc = "move north"},
-			{action = "go south",desc = "move south"},
-			{action = "go up"	,desc = "move up"},
-			{action = "go down"	,desc = "move down"},
-			{action = "climb tree",desc = "climb up the large tree"},
-            {action = "turn lamp on",desc = "turn the light on"},
-			{action = "take egg",desc = "take item" , object = 1},
-			{action = "take door",desc = "take item" , object = 2},
-			{action = "take tree",desc = "take item" , object = 3},
-			{action = "take leaves",desc = "take item" , object = 4},
-			{action = "take nest",desc = "take item" , object = 5},
-			{action = "take bag",desc = "take item" , object = 6},
-            {action = "take bottle",desc = "take item" , object = 7},
-            {action = "take rope",desc = "take item" , object = 8},
-            {action = "take sword",desc = "take item" , object = 9},
-            {action = "take lantern",desc = "take item" , object = 10},
-            {action = "take knife",desc = "take item" , object = 11},
-            {action = "take mat",desc = "take item" , object = 12},
-            {action = "take mailbox",desc = "take item" , object = 13},
-            {action = "take rug",desc = "take item" , object = 14},
-            {action = "take case",desc = "take item" , object = 15},
-            {action = "take axe",desc = "take item" , object = 16},
-            {action = "take diamond",desc = "take item" , object = 17},
-            {action = "take leaflet",desc = "take item" , object = 18},
-            {action = "take news",desc = "take item" , object = 19},
-            {action = "take brick",desc = "take item" , object = 20}
-		    }
-
-            for i=21, 200 do --extend the number of operations artificially with garbage actions
-                table.insert(self._objects,"garbage")
-                table.insert(self._actions,{action = "take garbage",desc = "garbage take action" , object = i} )
-            end
-		    self._terminal_string = "There is no obvious way to open the egg.\0"
-		    
---[[   elseif _opt and _opt.game_scenario == 4 then -- 20 objects enter the underground world scenario TODO 
-            self._objects = {"egg","door","tree","leaves","nest","bag","bottle","rope","sword","lantern","knife","matt","mailbox","rug","case","axe","diamod","leaflet","news","brick"}
-		    self._actions = {
-            {action = "look",desc = "observe the environment"},
-            {action = "open egg",desc = "try to open item"},
-			{action = "go east"	,desc = "move east"},
-			{action = "go west"	,desc = "move west"},
-			{action = "go north",desc = "move north"},
-			{action = "go south",desc = "move south"},
-			{action = "go up"		,desc = "move up"},
-			{action = "go down"	,desc = "move down"},
-			{action = "climb tree",desc = "climb up the large tree"},
-            {action = "turn lamp on",desc = "turn the light on"},
-            {action = "move rug",desc = "move the large rug aside"}, --
-            {action = "open trap door",desc = "open a celler door"}, -- these actions allow the agent to enter the underground world
-			{action = "take egg",desc = "take item" , object = 1},
-			{action = "take door",desc = "take item" , object = 2},
-			{action = "take tree",desc = "take item" , object = 3},
-			{action = "take leaves",desc = "take item" , object = 4},
-			{action = "take nest",desc = "take item" , object = 5},
-			{action = "take bag",desc = "take item" , object = 6},
-            {action = "take bottle",desc = "take item" , object = 7},
-            {action = "take rope",desc = "take item" , object = 8},
-            {action = "take sword",desc = "take item" , object = 9},
-            {action = "take lantern",desc = "take item" , object = 10},
-            {action = "take knife",desc = "take item" , object = 11},
-            {action = "take matt",desc = "take item" , object = 12},
-            {action = "take mailbox",desc = "take item" , object = 13},
-            {action = "take rug",desc = "take item" , object = 14},
-            {action = "take case",desc = "take item" , object = 15},
-            {action = "take axe",desc = "take item" , object = 16},
-            {action = "take diamond",desc = "take item" , object = 17},
-            {action = "take leaflet",desc = "take item" , object = 18},
-            {action = "take news",desc = "take item" , object = 19},
-            {action = "take brick",desc = "take item" , object = 20}
-      			
-		    }
-
-		    self._terminal_string = "There is no obvious way to open the egg.\0" 
-]]
+    print("@DEBUG Initializing zork framework".._opt.env_params.game_scenario)
+	--init game and define static actions
+    --cons = require 'pl.pretty'
+    --cons.dump(_opt.env_params)
+    assert(_opt.env_params.game_scenario)	--just a sanity check
+    local scenario = _opt.env_params.game_scenario or 1
+    self._additional_rewards = {}        
+    self._state={}
+    self._step_limit = 100
+    self.tot_steps = 0
+    self.tot_inits = 0
+    self:newGame()
+    --creates object actions for an object list
+    function genObjActionTable(obj_list)
+        local act = {}            
+        -- registers entries like this: {action = "take egg",desc = "take item" , object = 1}, ..
+        table.foreach(obj_list,function(k,v) table.insert(act,{action="take "..v,desc="take item",object = k}) end)
+        return act
     end
-    --define step cost	
+    
+    function concatTable(src1,src2)
+        table.foreach(src2,function(k,v) table.insert(src1,v) end)
+        return src1
+    end
+
+    local basic_actions = {
+        {action = "open egg",desc = "try to open item"},
+        {action = "go east"	,desc = "move east"},
+        {action = "go west"	,desc = "move west"},
+        {action = "go north",desc = "move north"},
+        {action = "go south",desc = "move south"},
+        {action = "go up"	,desc = "move up"},
+        {action = "go down"	,desc = "move down"},
+        {action = "climb tree",desc = "climb up the large tree"}, 
+        --give the agent another chance to observe its environment
+        {action = "look",desc = "observe the environment"},           
+    } 
+       -- self._actions = self.concatTable(basic_actions,genObjActionTable(self._objects))
+    local basic_objects = {"egg","door","tree","leaves","nest"}
+
+    local obj_ext1 = {"bag","bottle","rope", "sword","lantern","knife","mat","mailbox",
+                      "rug","case","axe", "diamod","leaflet","news","brick"}
+
+    local action_ext1 = {
+        {action = "turn lamp on",desc = "turn the light on"},
+        {action = "move rug",desc = "move the large rug"},
+        {action = "open trap door",desc = "open a celler door"},
+        {action = "hit troll with sword", desc = "try to kill deadly monster"}
+    }
+
+    self._actions = basic_actions
+    self._objects = basic_objects
+    
+    if scenario > 1 then
+        -- extend to 20 objects
+        self._objects = concatTable(basic_objects,obj_ext1)
+        if scenario == 4 or scenario == 3 then 
+            if scenario == 4 then --extended quest actions and intermidiate rewards
+                self._additional_rewards['There is no obvious way to open the egg.\0']=50   
+                self._additional_rewards['The door crashes shut, and you hear someone barring it.\0']=20   
+                self._terminal_string = "Your sword is no longer glowing."
+                --enable exteded quest with none object actions
+                self._actions = concatTable(self._actions,action_ext1)
+            end
+            --extend the number of operations artificially with garbage actions
+            for i=#self._objects + 1, 200 do 
+                table.insert(self._objects,"garbage")
+            end
+        else -- standard short quest
+            self._terminal_string = "There is no obvious way to open the egg.\0"     
+        end
+    end
+    --attach object actions
+    self._actions = concatTable(self._actions,genObjActionTable(self._objects))
+    --define step cost
 	self._step_penalty = -1
   	return self
 end
@@ -287,19 +211,12 @@ function gameEnv:nextRandomGame()
 end
 
 function gameEnv:step(action, training,obj_ind)
-  obj_ind = action_obj_ind or 1 --default select egg 
+  obj_ind = action_obj_ind or 1 --default select egg
   self.tot_steps=self.tot_steps+1
   local current_score, previous_score, previous_lives, reward, terminal
 	previous_score = zork.zorkGetScore()
 	previous_lives = zork.zorkGetLives()
-	-- print ("@DEBUG selected action:" , action.action )
-	-- this constructs the command for parametric actions for step	
-	--[[local command 
-	if action.action == "take" then
-		command =  action.action .. " the " .. action.objects[obj_ind]
-	else command = action.action
-	end]]
-	
+
 	local result_file_name,bad_command = zork.zorkGameStep(action.action)
 	current_score = zork.zorkGetScore()
 	reward = current_score - previous_score + self._step_penalty
@@ -316,17 +233,28 @@ function gameEnv:step(action, training,obj_ind)
 	if result_string:match(self._terminal_string) then
 		terminal = true
 		reward = reward + 100 -- give additional reward
-	  --print("@DEBUG: goal state reached in",zork.zorkGetNumMoves(),"steps")
+	    print("@DEBUG: goal state reached in",zork.zorkGetNumMoves(),"steps")
 	end
+    --check for any of the additional
+    table.foreach(self._additional_rewards,function(k,v) 
+                                                if result_string:match(k) then
+                                                    reward = reward + v
+                                                    self._additional_rewards[k]=0
+                                            	    print("@DEBUG: intermidiate goal state reached in",zork.zorkGetNumMoves(),"steps")
+                                                end
+                                            end
+                 )
 	-- early termination
 	if zork.zorkGetNumMoves() > self._step_limit - 1 then
 		terminal = true
 	end
---[[	if terminal then print("terminated after",zork.zorkGetNumMoves(),"steps")
-   print("total new games started",self.tot_inits,"total steps", self.tot_steps)
- end]]
+--[[
+    if terminal then print("terminated after",zork.zorkGetNumMoves(),"steps")
+       print("total new games started",self.tot_inits,"total steps", self.tot_steps)
+    end
+]]
 	self:_updateState(result_string, reward, terminal)
-	s, r,t =   	self:getState()
+	s, r, t = self:getState()
 	return s,r,t,result_string,bad_command,command
 end
 
