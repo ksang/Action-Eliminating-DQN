@@ -150,6 +150,9 @@ function gameEnv:__init(_opt)
                       "rug","case","axe", "diamod","leaflet","news","brick"}
 
     local action_ext1 = {
+      {action = "go in",desc = "enter location"},
+
+        {action = "open the window",desc = "open a passage way"},
         {action = "turn lamp on",desc = "turn the light on"},
         {action = "move rug",desc = "move the large rug"},
         {action = "open trap door",desc = "open a celler door"},
