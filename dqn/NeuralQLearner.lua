@@ -24,7 +24,7 @@ function nql:__init(args)
     self.n_actions  = #args.actions
     self.objects    = args.game_objects
     self.n_objects  = #args.game_objects
-    self.object_restrict_thresh = args.obj_explore_thresh or 0.5
+    self.object_restrict_thresh = args.obj_bad_cmd_thresh or 0.5
     self.obj_drop_prob = args.obj_drop_prob or 0.5
     self.obj_thresh_acc = args.obj_thresh or 0
     self.obj_network = args.obj_net_file or 'conv_obj_net'
@@ -581,23 +581,23 @@ function nql:eGreedy(state, testing,testing_ep)
   	    actionIndex = torch.random(1, self.n_actions) --choose at random
 
           -- prediction is always null for vanila, tweak 2 is only greedy action restriction so we also skip this part
-  	    if prediction and self.agent_tweak ~= GREEDY then --restricted random action selection, else use standard exploration
-    		    a_o = self.actions[actionIndex].object or 0	-- extract relevant object
-    		    if a_o ~= 0 then --only for "take" actions use prediction to validate action
-    		        repeat
-          			    --choose stricktly take action at random - this is to avoid vanishing "take" actions from replay mem
-          			    actionIndex = torch.random(self.n_actions - self.n_objects + 1, self.n_actions) -- assume take actions are always last
-          			    a_o = self.actions[actionIndex].object -- extract relevant object
-          			    --cons.dump(self.actions[actionIndex])
-          			    assert(a_o)
-          			    -- set self.object_restrict_thresh > 0.5 to consider high confidence predictions - relaxation for under-represented (s,a) pairs
-          			    hard_prediction = prediction[a_o] > self.object_restrict_thresh
-    		            --print("prediction", prediction ,"hard prediction", hard_prediction,"for object"..a_o )
-    		            -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
-    		        until hard_prediction == true or (hard_prediction == false and torch.uniform() <  1- self.obj_drop_prob)
-  		      end
-	      end
-	      return actionIndex
+        if prediction and self.agent_tweak ~= GREEDY then --restricted random action selection, else use standard exploration
+            a_o = self.actions[actionIndex].object or 0	-- extract relevant object
+            if a_o ~= 0 then --only for "take" actions use prediction to validate action
+                repeat
+                    --choose stricktly take action at random - this is to avoid vanishing "take" actions from replay mem
+                    actionIndex = torch.random(self.n_actions - self.n_objects + 1, self.n_actions) -- assume take actions are always last
+                    a_o = self.actions[actionIndex].object -- extract relevant object
+                    --cons.dump(self.actions[actionIndex])
+                    assert(a_o)
+                    -- set self.object_restrict_thresh > 0.5 to consider high confidence predictions - relaxation for under-represented (s,a) pairs
+                    hard_prediction = prediction[a_o] > self.object_restrict_thresh
+                    --print("prediction", prediction ,"hard prediction", hard_prediction,"for object"..a_o )
+                    -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
+                until hard_prediction == true or (hard_prediction == false and torch.uniform() > self.obj_drop_prob)
+            end
+        end
+        return actionIndex
     else --use greedy agent policy and pass along the raw prediction for this state
         return self:greedy(state,prediction)
     end
@@ -629,30 +629,31 @@ function nql:greedy(state,obj_net_prediction)
         -- flip 1 to 0 and 0 to 1 and create positive parse distribution over the objects
   	    soft_object_prediction = nn.SoftMax():forward(1 - obj_net_prediction)
         -- try to guess which are the most likely objects we would want to interact with, randomize to avoid optimal action starvation
-        best_objects = torch.multinomial(soft_object_prediction, self.obj_sample)
-        --sort is in accending order, most likely objects have the lowest value
-  	    local sorted_pred,sort_ind = obj_net_prediction:sort()
-  	    --insert most likely objects to the objects we wish to consider (may get duplicate objects in this version)
-  	    best_objects = best_objects:totable()
-  	    for ind=1, self.obj_max do
-  	        best_objects[self.obj_sample+ind]=sort_ind[ind]
-  	    end
-  	    best_objects = torch.Tensor(best_objects)
-  	    --[[if self.ep==0 then print("test: actual prediction" ,obj_net_prediction,
-  	         "\nsoft prediction ", soft_object_prediction,"\nbest choosen objects are" , best_objects) end]]
+        if self.obj_sample > 0 then
+            best_objects = torch.multinomial(soft_object_prediction, self.obj_sample)
+            --sort is in accending order, most likely objects have the lowest value
+            local sorted_pred,sort_ind = obj_net_prediction:sort()
+            --insert most likely objects to the objects we wish to consider (may get duplicate objects in this version)
+            best_objects = best_objects:totable()
+            for ind=1, self.obj_max do
+                best_objects[self.obj_sample+ind]=sort_ind[ind]
+            end
+            best_objects = torch.Tensor(best_objects)
+        end
+        --[[if self.ep==0 then print("test: actual prediction" ,obj_net_prediction,
+            "\nsoft prediction ", soft_object_prediction,"\nbest choosen objects are" , best_objects) end]]
 
     else -- when we dont use the predictions for code simplicity consider all objects
-  	    best_objects = torch.range(1,self.n_objects)
-	      -- TODO generalize this per action and associated objects (maybe per object network output dim)
-
+        best_objects = torch.range(1,self.n_objects)
+        -- TODO generalize this per action and associated objects (maybe per object network output dim)
     end
 --#########################################
     -- Evaluate all other actions (with random tie-breaking)
     for a = 2, self.n_actions do
-	      --extract the current action object index
-	      local a_o = self.actions[a].object or 0
-	      --[[only consider non object or best_objects for the max operation assuming only 1 action interacts with objects
-	      (this needs to be expanded to more then one object network and categorized by action type)]]
+        --extract the current action object index
+        local a_o = self.actions[a].object or 0
+        --[[only consider non object or best_objects for the max operation assuming only 1 action interacts with objects
+        (this needs to be expanded to more then one object network and categorized by action type)]]
         if a_o == 0 or best_objects:eq(a_o):sum() > 0 then
 
            --if a_o ~= 0 and obj_net_prediction and self.ep == 0 then print('considering object'.. a_o) end

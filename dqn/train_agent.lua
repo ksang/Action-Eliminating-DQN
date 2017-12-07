@@ -123,7 +123,7 @@ while step < opt.steps do
         local eval_bad_command = 0
         local eval_tot_obj_actions = 0
         for estep=1,opt.eval_steps do
-            local action_index,a_o = agent:perceive(reward, screen, terminal, true, 0)--0.05) -- a_o : object for action assume only 1 for now
+            local action_index,a_o = agent:perceive(reward, screen, terminal, true, 0.05) -- a_o : object for action assume only 1 for now
             -- Play game in test mode (episodes don't end when losing a life)
             screen, reward, terminal,new_state_string,bad_command = game_env:step(game_actions[action_index])
 	          agent.lastAction_bad = bad_command -- update agent feedback on syntax flag for last command
@@ -202,23 +202,23 @@ while step < opt.steps do
         end
         filename = filename  .. "_lr" .. agent.lr .."_" ..agent.n_actions.."a"
         torch.save(filename ..".t7", {agent = agent,
-                                model = agent.network,
-                                best_model = agent.best_network,
-                                reward_history = reward_history,
-				                obj_loss_history = obj_loss_history,
-                                reward_counts = reward_counts,
-                                episode_counts = episode_counts,
-                                time_history = time_history,
-                                v_history = v_history,
-                                td_history = td_history,
-                                qmax_history = qmax_history,
-                                arguments=opt})
+                                      model = agent.network,
+                                      best_model = agent.best_network,
+                                      reward_history = reward_history,
+      	                              obj_loss_history = obj_loss_history,
+                                      reward_counts = reward_counts,
+                                      episode_counts = episode_counts,
+                                      time_history = time_history,
+                                      v_history = v_history,
+                                      td_history = td_history,
+                                      qmax_history = qmax_history,
+                                      arguments=opt})
         if opt.saveNetworkParams then
             local nets = {network=w:clone():float()}
             torch.save(filename..'.params.t7', nets, 'ascii')
         end
         agent.valid_s, agent.valid_a, agent.valid_r, agent.valid_s2, agent.valid_term,
-	    agent.valid_a_o,agent.valid_bad_command = s, a, r, s2, term, a_o,bad_command
+            agent.valid_a_o,agent.valid_bad_command = s, a, r, s2, term, a_o,bad_command
         agent.w, agent.dw, agent.g, agent.g2, agent.delta, agent.delta2,
             agent.deltas, agent.tmp = w, dw, g, g2, delta, delta2, deltas, tmp
         print('Saved:', filename .. '.t7')

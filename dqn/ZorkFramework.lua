@@ -105,8 +105,8 @@ local gameEnv = torch.class('ZorkFramework.GameEnvironment')
 
 function gameEnv:__init(_opt)
 
-    print("@DEBUG Initializing zork framework".._opt.env_params.game_scenario)
-	--init game and define static actions
+    print("@DEBUG Initializing zork framework with scenario ".._opt.env_params.game_scenario)
+    --init game and define static actions
     --cons = require 'pl.pretty'
     --cons.dump(_opt.env_params)
     assert(_opt.env_params.game_scenario)	--just a sanity check
@@ -150,13 +150,12 @@ function gameEnv:__init(_opt)
                       "rug","case","axe", "diamod","leaflet","news","brick"}
 
     local action_ext1 = {
-      {action = "go in",desc = "enter location"},
-
-        {action = "open the window",desc = "open a passage way"},
-        {action = "turn lamp on",desc = "turn the light on"},
-        {action = "move rug",desc = "move the large rug"},
-        {action = "open trap door",desc = "open a celler door"},
-        {action = "hit troll with sword", desc = "try to kill deadly monster"}
+      {action = "enter",desc = "enter location"},
+      {action = "open the window",desc = "open a passage way"},
+      {action = "turn lamp on",desc = "turn the light on"},
+      {action = "move rug",desc = "move the large rug"},
+      {action = "open trap door",desc = "open a celler door"},
+      {action = "hit troll with sword", desc = "try to kill deadly monster"}
     }
 
     self._actions = basic_actions
@@ -167,13 +166,11 @@ function gameEnv:__init(_opt)
         -- extend to 20 objects
         self._objects = concatTable(basic_objects,obj_ext1)
         if scenario >= 3 then
-            --extend the number of operations artificially with garbage actions
+            --extend the number of operations artificially with garbage objects
             for i=#self._objects + 1, 200 do
                 table.insert(self._objects,"garbage")
             end
             if scenario >= 4 then --extended quest actions and intermidiate rewards
-                self._additional_rewards['There is no obvious way to open the egg.\0']=50
-                self._additional_rewards['The door crashes shut, and you hear someone barring it.\0']=20
                 self._terminal_string = "Your sword is no longer glowing."
                 --enable exteded quest with none object actions
                 self._actions = concatTable(self._actions,action_ext1)
@@ -183,8 +180,8 @@ function gameEnv:__init(_opt)
     --attach object actions
     self._actions = concatTable(self._actions,genObjActionTable(self._objects))
     --define step cost
-	self._step_penalty = -1
-  	return self
+    self._step_penalty = -2
+    return self
 end
 
 --[[ this helper method assigns the state arguments ]]
@@ -205,6 +202,12 @@ function gameEnv:newGame()
 	local result_file_name = zork.zorkInit()
 	local result_string = read_file(result_file_name)
 	self:_updateState(result_string,0,false)
+  --uncomment to setup intermidiate rewards
+  --[[if self.scenario > 3 then
+    self._additional_rewards['There is no obvious way to open the egg.\0']=50
+    self._additional_rewards['The door crashes shut, and you hear someone barring it.\0']=20
+  end
+  ]]
   s,r,t =  self:getState()
   return s,r,t, result_string
 end
@@ -215,7 +218,7 @@ end
 
 function gameEnv:step(action, training,obj_ind)
   obj_ind = action_obj_ind or 1 --default select egg
-  self.tot_steps=self.tot_steps+1
+  self.tot_steps = self.tot_steps+1
   local current_score, previous_score, previous_lives, reward, terminal
 	previous_score = zork.zorkGetScore()
 	previous_lives = zork.zorkGetLives()
@@ -227,24 +230,24 @@ function gameEnv:step(action, training,obj_ind)
 	local result_string = read_file(result_file_name)
  	-- set terminal signal
 	if training then
-  		terminal = previous_lives > zork.zorkGetLives() -- every time we lose life
+    terminal = previous_lives > zork.zorkGetLives() -- every time we lose life
 	else terminal =
 		zork.zorkGetLives() == 0 -- when evaluating agent only when no more lives
 	end
 
 	-- check for terminal state
 	if result_string:match(self._terminal_string) then
-		terminal = true
-		reward = reward + 100 -- give additional reward
-	  if self.scenario > 3 then  print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves().. " steps ####", training) end
+    terminal = true
+    reward = reward + 20 -- give additional reward
+    --if self.scenario > 3 and not training then  print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves() .. " steps ####", zork.zorkGetLives()) end
 	end
     --check for any of the additional
-    table.foreach(self._additional_rewards,function(k,v)
+    table.foreach(self._additional_rewards, function(k,v)
                                                 if result_string:match(k) then
                                                     reward = reward + v
                                                     self._additional_rewards[k]=0
                                                     if not training and v>0 then
-                                                        print("@DEBUG: intermidiate goal state :" .. k
+                                                        print("@DEBUG: intermidiate goal state: " .. k
                                                         .." reached in",zork.zorkGetNumMoves(),"steps")
                                                     end
                                                 end

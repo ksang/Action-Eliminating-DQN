@@ -5,19 +5,19 @@ AGENT=$3
 agent_type="DQN3_0_1"
 #####################################################
 FRAMEWORK="ZorkFramework"
-agent_tweak=$AGENT            #"greedy" #"explore" #"merged" #"vanila"
+agent_tweak=$AGENT              #"greedy" #"explore" #"merged" #"vanila"
 obj_net_file="\"conv_obj_net\"" #object network file
 obj_start=1                     #number of learning starts until the agent can use object net insight
 obj_bad_cmd_thresh=0.65         #when sigmoid output is larger then the threshold consider it as bad prediction
 obj_acc_trust_thresh=0.75       #accuracy threshold for agent to use object net insight
-obj_drop_prob=0.75              #probability to drop actions which Obj net condsiders as bad for explore mod
+obj_drop_prob=0.75               #probability to drop actions which Obj net condsiders as bad for explore mod
 obj_max=5                       #[0,n_objects] how many most likely objects to consider with greedy action wp 1
-obj_sample=5                    #[0,n_objects] how many objects to sample
-scenario=$SCENAR                      #select scenarion: #2 - 20 objects, short egg quest. #1 - 5 objects, short egg quest
-obj_lr=0.000013
+obj_sample=2                    #[0,n_objects] how many objects to sample
+scenario=$SCENAR                #select scenarion: #2 - 20 objects, short egg quest. #1 - 5 objects, short egg quest
+obj_lr=0.0000013
 env_params="game_scenario="$scenario""
 game_path=$PWD"/dqn/zork"
-agent_name=$agent_type"_"$ENV"_FC_"$agent_tweak"_scenario_"$scenario
+agent_name=$agent_type"_"$ENV"_FC_"$agent_tweak"_limited_reward_scenario_"$scenario
 #####################################################
 
 agent="NeuralQLearner"
@@ -27,7 +27,7 @@ update_freq=4
 actrep=1
 discount=0.8
 seed=0
-learn_start=100000 #50000
+learn_start=150000 #50000
 pool_frms_type="\"max\""
 pool_frms_size=2
 initial_priority="false"
@@ -42,12 +42,12 @@ state_cols=300
 state_dim=19500 #@DEBUG_DIM(state(sentence)size*word representation)
 ncols=1 # number of color channels we only have 1
 #nrows=3
-agent_params="obj_lr="$obj_lr",lr="$lr",ep=1,ep_end="$eps_end",ep_endt="$eps_endt",discount="$discount",hist_len=4,learn_start="$learn_start",replay_memory="$replay_memory",update_freq="$update_freq",n_replay="$n_replay",network="$netfile",agent_tweak=\"$agent_tweak\",preproc="$preproc_net",state_dim="$state_dim",minibatch_size=32,rescale_r=1,ncols="$ncols",state_rows="$state_rows",state_cols="$state_cols",bufferSize=512,valid_size=500,target_q=10000,clip_delta=1,min_reward=-1,max_reward=99,obj_explore_thresh="$obj_bad_cmd_thresh",obj_start="$obj_start",obj_thresh_acc="$obj_acc_trust_thresh",obj_sample="$obj_sample",obj_max="$obj_max",obj_drop_prob="$obj_drop_prob",obj_net_file="$obj_net_file""
+agent_params="obj_lr="$obj_lr",lr="$lr",ep=1,ep_end="$eps_end",ep_endt="$eps_endt",discount="$discount",hist_len=4,learn_start="$learn_start",replay_memory="$replay_memory",update_freq="$update_freq",n_replay="$n_replay",network="$netfile",agent_tweak=\"$agent_tweak\",preproc="$preproc_net",state_dim="$state_dim",minibatch_size=32,rescale_r=1,ncols="$ncols",state_rows="$state_rows",state_cols="$state_cols",bufferSize=1024,valid_size=1000,target_q=10000,clip_delta=1,min_reward=-1,max_reward=99,obj_bad_cmd_thresh="$obj_bad_cmd_thresh",obj_start="$obj_start",obj_thresh_acc="$obj_acc_trust_thresh",obj_sample="$obj_sample",obj_max="$obj_max",obj_drop_prob="$obj_drop_prob",obj_net_file="$obj_net_file""
 steps=10000000 #50000000
 eval_freq=10000 #250000 # can change ratio between steps and eval_freq to get more samples
 eval_steps=5000 #125000
 prog_freq=5000 #10000
-save_freq=150000 #125000
+save_freq=100000 #125000
 gpu=0
 random_starts=0
 pool_frms="type="$pool_frms_type",size="$pool_frms_size
