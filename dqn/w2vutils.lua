@@ -6,7 +6,7 @@ opt = {
 }
 local w2vutils = {}
 if not paths.filep(opt.outfilename) then
-	w2vutils = require('bintot7.lua')
+	w2vutils = require('bintot7')
 else
 	w2vutils = torch.load(opt.outfilename)
 	print('Done reading word2vec data.')
