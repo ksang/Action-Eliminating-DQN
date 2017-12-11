@@ -147,7 +147,7 @@ function nql:__init(args)
     -- set object network loss for multi lable learning
     --self.objNetLoss = nn.MultiLabelSoftMarginCriterion() --need to remove sigmoid activation from the network
     self.objNetLoss = nn.BCECriterion()
-    self.optimState = {learningRate = self.obj_lr}--,learningRateDecay = 0.01}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
+    self.optimState = {learningRate = self.obj_lr, learningRateDecay = 0.01}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
     self.last_object_net_accuracy = 0
     -- end of object network init
 --#########################################
@@ -353,7 +353,7 @@ function nql:qLearnMinibatch()
 --#########################################
     -- now train obj network
     if self.agent_tweak ~= VANILA then
-        self:objLearnMiniBatch(s_for_obj,a_for_obj,a_o, bad_command)
+      self:objLearnMiniBatch(s_for_obj,a_for_obj,a_o, bad_command)
     end
 --#########################################
 end
@@ -362,29 +362,30 @@ end
 function nql:setYbuff(action_object, bad_command, validation)
 
   --@FIXME this is ugly, but will do for now
-   if validation then
-   self.valid_Y_buff = self.valid_Y_buff:zero() + 0.5 -- 2d buffer of size minibatchXnum_objects set 0.5 to unknown entries
-   --print("before",buff)
-   local object_index
-   for i=1, (#self.valid_Y_buff)[1] do -- expand labels
-      object_index = action_object[i]
-      self.valid_Y_buff[i][object_index] = bad_command[i]
-   end
-
-   else
-     self.Y_buff = self.Y_buff:zero() + 0.5 -- 2d buffer of size minibatchXnum_objects set 0.5 to unknown entries
-     --print("before",buff)
-     local object_index
-     for i=1, (#self.Y_buff)[1] do -- expand labels
+  if validation then
+    self.valid_Y_buff = self.valid_Y_buff:zero() + 1 -- 2d buffer of size minibatchXnum_objects set 1 to unknown entries for validation
+    --print("before",buff)
+    local object_index
+    for i=1, (#self.valid_Y_buff)[1] do -- expand labels
         object_index = action_object[i]
-        self.Y_buff[i][object_index] = bad_command[i]
-     end
-   end
+        self.valid_Y_buff[i][object_index] = bad_command[i]
+    end
 
-   if self.gpu >=0 then
-	 if validation then self.valid_Y_buff:cuda() --[[else self.Y_buff:cuda()]] end
-   end
-   --print ("@DEBUG - Y valid buff", buff)
+    else
+      self.Y_buff = self.Y_buff:zero() + 0.5 -- 2d buffer of size minibatchXnum_objects set 0.5 to unknown entries
+      --print("before",buff)
+      local object_index
+      for i=1, (#self.Y_buff)[1] do -- expand labels
+          object_index = action_object[i]
+          self.Y_buff[i][object_index] = bad_command[i]
+      end
+  end
+
+  if self.gpu >=0 then
+      if validation then self.valid_Y_buff:cuda()
+      else self.Y_buff:cuda() end
+  end
+ --print ("@DEBUG - Y valid buff", buff)
 end
 
 
@@ -395,15 +396,15 @@ function nql:objLearnMiniBatch(s,a,a_o,bad_command)
         self.obj_dw:zero()
         self:setYbuff(a_o, bad_command)
         --print("buffer after setting",self.Y_buff)
-        --local grad_image = self.Y_buff:ne(0.5) -- maps which gradients we wish to keep
+        local grad_image = self.Y_buff:ne(0.5):cuda() -- maps which gradients we wish to keep
         --print("grad image",grad_image)
-        local h_x = self.obj_network:forward(s)--:cuda()
+        local h_x = self.obj_network:forward(s):cuda()
         local J = self.objNetLoss:forward(h_x, self.Y_buff)
         --print("@DEBUG loss calculated "..J, "\npredictions = \n","actual labels= \n",h_x,self.Y_buff) -- just for debugging purpose
 	      --zero out none informative gradients
-	      --local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda()]])
+	      local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda())
         --print ("after cmul",dJ_dh_x)
-	      local dJ_dh_x = self.objNetLoss:backward(h_x, self.Y_buff)--:cuda()
+	      --local dJ_dh_x = self.objNetLoss:backward(h_x, self.Y_buff)--:cuda()
         self.obj_network:backward(s, dJ_dh_x) -- computes and updates gradTheta
 	      return J, self.obj_dw
     end
@@ -438,15 +439,16 @@ function nql:compute_validation_statistics()
     self.v_avg = self.q_max * q2_max:mean()
     self.tderr_avg = delta:clone():abs():mean()
 --#########################################
+    self.transitions:report()
     if self.agent_tweak ~= VANILA then -- calc object net validation info
-        self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
-        --print(self.valid_Y_buff)
-        local h_x = self.obj_network:forward(self.valid_s_for_obj):cuda()
-        local J = self.objNetLoss:forward(h_x, self.valid_Y_buff)
-        local h_y = 1 - h_x:le(0.5) -- calculate prediction
-        local sum = 0
-        local false_neg = 0
-        for i=1,self.valid_size do
+      self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
+      --print(self.valid_Y_buff)
+      local h_x = self.obj_network:forward(self.valid_s_for_obj):cuda()
+      local J = self.objNetLoss:forward(h_x, self.valid_Y_buff)
+      local h_y = 1 - h_x:le(0.5) -- calculate prediction
+      local sum = 0
+      local false_neg = 0
+      for i=1,self.valid_size do
           local object_index = self.valid_a_o[i]
           if h_y[i][object_index] == self.valid_bad_command[i] then
             sum = sum + 1
@@ -455,15 +457,14 @@ function nql:compute_validation_statistics()
               false_neg = false_neg + 1
             end
           end
-        end
-        --print("predicted lables vs validation sample\n",torch.cat(h_y:float(),self.valid_Y_buff:float()))
-        local single_lable_acc = sum/self.valid_size
-        print("object net accuracy",single_lable_acc)
-        print("obj net reports ".. false_neg .. "false negetives")
-        print("object net validation loss", J)
-        self.transitions:report()
-        self.last_object_net_accuracy = single_lable_acc
-        return {J, single_lable_acc}
+      end
+      --print("predicted lables vs validation sample\n",torch.cat(h_y:float(),self.valid_Y_buff:float()))
+      local single_lable_acc = sum/self.valid_size
+      print("object net accuracy",single_lable_acc)
+      print("obj net reports ".. false_neg .. " false negetives")
+      print("object net validation loss", J)
+      self.last_object_net_accuracy = single_lable_acc
+      return {J, single_lable_acc}
     end
 --#########################################
 end
@@ -592,9 +593,10 @@ function nql:eGreedy(state, testing,testing_ep)
                     assert(a_o)
                     -- set self.object_restrict_thresh > 0.5 to consider high confidence predictions - relaxation for under-represented (s,a) pairs
                     hard_prediction = prediction[a_o] > self.object_restrict_thresh
-                    --print("prediction", prediction ,"hard prediction", hard_prediction,"for object"..a_o )
                     -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
-                until hard_prediction == true or (hard_prediction == false and torch.uniform() > self.obj_drop_prob)
+                until hard_prediction == false or (hard_prediction == true and torch.uniform() > self.obj_drop_prob)
+                --if prediction[a_o] < 0.5 then print("prediction", prediction[a_o].." for object "..self.objects[a_o] ) end --sanity
+                --if prediction[a_o] > 0.5 then print("pass "..self.objects[a_o],prediction[a_o] ) end
             end
         end
         return actionIndex
@@ -622,27 +624,22 @@ function nql:greedy(state,obj_net_prediction)
     local besta = {1}
 --#########################################
     --greedy action restriction segment
-    local best_objects, soft_object_prediction
+    local best_objects, soft_object_prediction,sampled_objects
 
     --obj_net_prediction is always null for vanila, skip this part for strictly exploration tweak (no 3)
     if obj_net_prediction and self.agent_tweak ~= EXPLORE then --not nil only if we have started using object net insight
-        -- flip 1 to 0 and 0 to 1 and create positive parse distribution over the objects
+        -- flip 1 to 0 and 0 to 1 and create probability distribution over the objects
   	    soft_object_prediction = nn.SoftMax():forward(1 - obj_net_prediction)
-        -- try to guess which are the most likely objects we would want to interact with, randomize to avoid optimal action starvation
-        if self.obj_sample > 0 then
-            best_objects = torch.multinomial(soft_object_prediction, self.obj_sample)
-            --sort is in accending order, most likely objects have the lowest value
-            local sorted_pred,sort_ind = obj_net_prediction:sort()
-            --insert most likely objects to the objects we wish to consider (may get duplicate objects in this version)
-            best_objects = best_objects:totable()
-            for ind=1, self.obj_max do
-                best_objects[self.obj_sample+ind]=sort_ind[ind]
-            end
-            best_objects = torch.Tensor(best_objects)
-        end
-        --[[if self.ep==0 then print("test: actual prediction" ,obj_net_prediction,
-            "\nsoft prediction ", soft_object_prediction,"\nbest choosen objects are" , best_objects) end]]
+        --try to guess which are the most likely objects we would want to interact with, randomize helps avoiding optimal action starvation
+        --sort is in decending order, most likely objects have the highest value
+        local sorted_pred,sort_ind = torch.sort(obj_net_prediction,true)
 
+        best_objects = sort_ind[{{1,self.obj_max}}]
+        if self.obj_sample > 0 then
+            sampled_objects = torch.multinomial(soft_object_prediction, self.obj_sample)
+            best_objects = best_objects:cat(sampled_objects)
+        end
+        --print(best_objects)
     else -- when we dont use the predictions for code simplicity consider all objects
         best_objects = torch.range(1,self.n_objects)
         -- TODO generalize this per action and associated objects (maybe per object network output dim)
@@ -655,8 +652,6 @@ function nql:greedy(state,obj_net_prediction)
         --[[only consider non object or best_objects for the max operation assuming only 1 action interacts with objects
         (this needs to be expanded to more then one object network and categorized by action type)]]
         if a_o == 0 or best_objects:eq(a_o):sum() > 0 then
-
-           --if a_o ~= 0 and obj_net_prediction and self.ep == 0 then print('considering object'.. a_o) end
             if q[a] > maxq then
                 besta = { a }
                 maxq = q[a]
@@ -671,6 +666,8 @@ function nql:greedy(state,obj_net_prediction)
 
     self.lastAction = besta[r]
     self.lastAction_o = self.actions[besta[r]].object or 0
+    --if self.lastAction_o ~= 0 and obj_net_prediction then print('choosen object '.. self.objects[self.lastAction_o], obj_net_prediction[self.lastAction_o]) end
+
     return besta[r]
 end
 

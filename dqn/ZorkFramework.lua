@@ -238,7 +238,7 @@ function gameEnv:step(action, training,obj_ind)
 	-- check for terminal state
 	if result_string:match(self._terminal_string) then
     terminal = true
-    reward = reward + 20 -- give additional reward
+    reward = reward + 100 -- give additional reward
     --if self.scenario > 3 and not training then  print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves() .. " steps ####", zork.zorkGetLives()) end
 	end
     --check for any of the additional
