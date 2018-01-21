@@ -11,14 +11,14 @@ obj_net_file="\"conv_obj_net\"" #object network file
 obj_start=1                     #number of learning starts until the agent can use object net insight
 obj_bad_cmd_thresh=0.6          #when sigmoid output is larger then the threshold consider it as bad prediction
 obj_acc_trust_thresh=0.75       #accuracy threshold for agent to use object net insight
-obj_drop_prob=0.9               #probability to drop actions which Obj net condsiders as bad for explore mod
+obj_drop_prob=0.80              #probability to drop actions which Obj net condsiders as bad for explore mod
 obj_max=5                       #[0,n_objects] how many most likely objects to consider with greedy action wp 1
-obj_sample=5                    #[0,n_objects] how many objects to sample
+obj_sample=5                 #[0,n_objects] how many objects to sample
 scenario=$SCENAR                #select scenarion: #4 - 200 objects, troll quest #3 objects #2 - 20 objects, short egg quest. #1 - 5 objects, short egg quest
-obj_lr=0.013
+obj_lr=0.00043
 env_params="game_scenario="$scenario""
 game_path=$PWD"/dqn/zork"
-agent_name=$agent_type"_"$ENV"_FC_"$agent_tweak"_amended_scenario_"$scenario
+agent_name=$agent_type"_"$ENV"_FC_"$agent_tweak"_amended_scenario_"$scenario"_samole_"$obj_sample"_drop_prob_"$obj_drop_prob
 #####################################################
 
 agent="NeuralQLearner"
@@ -28,15 +28,15 @@ update_freq=4
 actrep=1
 discount=0.8
 seed=0
-learn_start=100000 #50000
+learn_start=100000 # 200000 #50000
 pool_frms_type="\"max\""
 pool_frms_size=2
 initial_priority="false"
 replay_memory=1000000
  #1000000
 eps_end=0.05
-eps_endt=1000000
-lr=0.0000017
+eps_endt=500000
+lr=0.00000017
 preproc_net="\"net_downsample_2x_full_y\""
 state_rows=65  #@NOTE we added the folowing 2 arguments to allow neural q learner know what are the input dimms
 state_cols=300

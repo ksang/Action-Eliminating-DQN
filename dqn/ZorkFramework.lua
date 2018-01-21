@@ -180,7 +180,7 @@ function gameEnv:__init(_opt)
     --attach object actions
     self._actions = concatTable(self._actions,genObjActionTable(self._objects))
     --define step cost
-    self._step_penalty = -2
+    self._step_penalty = -1
     return self
 end
 

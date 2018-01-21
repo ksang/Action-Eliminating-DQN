@@ -147,7 +147,7 @@ function nql:__init(args)
     -- set object network loss for multi lable learning
     --self.objNetLoss = nn.MultiLabelSoftMarginCriterion() --need to remove sigmoid activation from the network
     self.objNetLoss = nn.BCECriterion()
-    self.optimState = {learningRate = self.obj_lr, learningRateDecay = 0.01}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
+    self.optimState = {learningRate = self.obj_lr, learningRateDecay = 0.005}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
     self.last_object_net_accuracy = 0
     -- end of object network init
 --#########################################
