@@ -61,7 +61,6 @@ RET=$?; if [ $RET -ne 0 ]; then echo "Error. Exiting."; exit $RET; fi
 make install
 RET=$?; if [ $RET -ne 0 ]; then echo "Error. Exiting."; exit $RET; fi
 
-
 path_to_nvcc=$(which nvcc)
 if [ -x "$path_to_nvcc" ]
 then
@@ -88,6 +87,7 @@ $PREFIX/bin/luarocks install image
 $PREFIX/bin/luarocks install env
 $PREFIX/bin/luarocks install qtlua
 $PREFIX/bin/luarocks install qttorch
+$PREFIX/bin/luarocks install optim
 
 echo ""
 echo "=> Torch7 has been installed successfully"
@@ -99,23 +99,6 @@ $PREFIX/bin/luarocks install nngraph
 RET=$?; if [ $RET -ne 0 ]; then echo "Error. Exiting."; exit $RET; fi
 echo "nngraph installation completed"
 
-echo "Installing Xitari ... "
-cd /tmp
-rm -rf xitari
-git clone https://github.com/deepmind/xitari.git
-cd xitari
-$PREFIX/bin/luarocks make
-RET=$?; if [ $RET -ne 0 ]; then echo "Error. Exiting."; exit $RET; fi
-echo "Xitari installation completed"
-
-echo "Installing Alewrap ... "
-cd /tmp
-rm -rf alewrap
-git clone https://github.com/deepmind/alewrap.git
-cd alewrap
-$PREFIX/bin/luarocks make
-RET=$?; if [ $RET -ne 0 ]; then echo "Error. Exiting."; exit $RET; fi
-echo "Alewrap installation completed"
 
 echo "Installing Lua-GD ... "
 mkdir $PREFIX/src
@@ -126,17 +109,11 @@ cd lua-gd
 sed -i "s/LUABIN=lua5.1/LUABIN=..\/..\/bin\/luajit/" Makefile
 $PREFIX/bin/luarocks make
 RET=$?; if [ $RET -ne 0 ]; then echo "Error. Exiting."; exit $RET; fi
-echo "Lua-GD installation completed"
+echo "Lua-GD installation completed, attach torch/bin directory to env path"
 
-echo
+echo "For the first time please download and extract the pretrained w2v from https://drive.google.com/file/d/0B7XkCwpI5KDYNlNUTTlSS21pQmM/ to Action-Eliminating-DQN/dqn/"
+echo 
 echo "You can run experiments by executing: "
 echo
-echo "   ./run_cpu game_name"
-echo
-echo "            or   "
-echo
-echo "   ./run_gpu game_name"
-echo
-echo "For this you need to provide the rom files of the respective games (game_name.bin) in the roms/ directory"
-echo
+echo "   ./run_gpu zork <scenario> <agent_type> [GPU_ID]"
 
