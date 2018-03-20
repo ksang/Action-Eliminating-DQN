@@ -14,6 +14,7 @@ obj_acc_trust_thresh=0.75       #accuracy threshold for agent to use object net 
 obj_drop_prob=0.9               #probability to drop actions which Obj net condsiders as bad for explore mod
 obj_sample=5                    #[0,n_objects] how many objects to sample
 obj_max=10                       #[0,n_objects] how many most likely objects to consider with greedy action wp 1
+
 scenario=$SCENAR                #select scenarion: #4 - 200 objects, troll quest #3 objects #2 - 20 objects, short egg quest. #1 - 5 objects, short egg quest
 obj_lr=0.00043
 env_params="game_scenario="$scenario""
@@ -25,6 +26,7 @@ fi
 if [ $AGENT="merged" ] || [ $AGENT="explore" ]; then
   agent_name=$agent_name"_drop_prob_"$obj_drop_prob
 fi
+
 #####################################################
 
 agent="NeuralQLearner"
@@ -43,6 +45,7 @@ replay_memory=1000000
 eps_end=0.05
 eps_endt=500000
 lr=0.0000017
+
 preproc_net="\"net_downsample_2x_full_y\""
 state_rows=65  #@NOTE we added the folowing 2 arguments to allow neural q learner know what are the input dimms
 state_cols=300
