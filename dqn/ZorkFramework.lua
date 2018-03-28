@@ -75,9 +75,9 @@ function textEmbedding(line)
 	    break
 	  end
 
-	 word = input_text[i + 3]
-	 if word == nil then goto continue end  -- skip empty spaces
-	 normlized_word = split(word, "%a+")[1] --TODO explain
+	  word = input_text[i + 3]
+	  if word == nil then goto continue end  -- skip empty spaces
+	  normlized_word = split(word, "%a+")[1]
 	  --ignore words not in vocab
 	  normlized_vec = w2vutils:word2vec(normlized_word)
   	  if normlized_vec then
@@ -112,6 +112,8 @@ function gameEnv:__init(_opt)
     assert(_opt.env_params.game_scenario)	--just a sanity check
     local scenario = _opt.env_params.game_scenario or 1
     self.scenario = scenario
+    -- for reward shaping
+    self.bad_parse_penalty_scale = _opt.env_params.bad_parse_penalty_scale or 0
     self._additional_rewards = {}
     self._state={}
     self._step_limit = 100
@@ -147,7 +149,7 @@ function gameEnv:__init(_opt)
     local basic_objects = {"egg","door","tree","leaves","nest"}
 
     local obj_ext1 = {"bag","bottle","rope", "sword","lantern","knife","mat","mailbox",
-                      "rug","case","axe", "diamod","leaflet","news","brick"}
+                      "rug","case","axe", "diamond","leaflet","news","brick"}
 
     local action_ext1 = {
       {action = "enter",desc = "enter location"},
@@ -224,8 +226,9 @@ function gameEnv:step(action, training,obj_ind)
 	previous_lives = zork.zorkGetLives()
 
 	local result_file_name,bad_command = zork.zorkGameStep(action.action)
-	current_score = zork.zorkGetScore()
-	reward = current_score - previous_score + self._step_penalty
+    current_score = zork.zorkGetScore()
+    -- double step penalty for bad parse
+	reward = current_score - previous_score + self._step_penalty*(1+bad_command*self.bad_parse_penalty_scale)
 	-- read step result string
 	local result_string = read_file(result_file_name)
  	-- set terminal signal
