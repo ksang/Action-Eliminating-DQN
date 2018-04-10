@@ -6,14 +6,8 @@ See LICENSE file for full terms of limited license.
 dqn = {}
 
 require 'torch'
-require 'nn'
-require 'nngraph'
-require 'nnutils'
-require 'image'
-require 'Scale'
 require 'NeuralQLearner'
 require 'TransitionTable'
-require 'Rectifier'
 
 
 function torchSetup(_opt)
@@ -41,7 +35,7 @@ function torchSetup(_opt)
     end
 
     --- general setup
-    opt.tensorType =  opt.tensorType or 'torch.FloatTensor'
+    opt.tensorType = opt.tensorType or 'torch.FloatTensor'
     torch.setdefaulttensortype(opt.tensorType)
     if not opt.threads then
         opt.threads = 4
