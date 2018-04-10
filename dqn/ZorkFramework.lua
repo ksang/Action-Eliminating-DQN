@@ -76,16 +76,16 @@ function textEmbedding(line)
 	  end
 
 	  word = input_text[i + 3]
-	  if word == nil then goto continue end  -- skip empty spaces
-	  normlized_word = split(word, "%a+")[1]
-	  --ignore words not in vocab
-	  normlized_vec = w2vutils:word2vec(normlized_word)
-  	  if normlized_vec then
-		matrix[sentence_size - reserved_for_inventory + i] = normlized_vec
-	    else
-		print('warning ' .. normlized_word .. ' not in vocab')
-	  end
-	::continue::
+	  if word ~= nil then   -- skip empty spaces
+        normlized_word = split(word, "%a+")[1]
+        --ignore words not in vocab
+        normlized_vec = w2vutils:word2vec(normlized_word)
+        if normlized_vec then
+          matrix[sentence_size - reserved_for_inventory + i] = normlized_vec
+        else
+          print('warning ' .. normlized_word .. ' not in vocab')
+        end
+      end
 	end
 
 	return matrix
@@ -181,6 +181,10 @@ function gameEnv:__init(_opt)
     end
     --attach object actions
     self._actions = concatTable(self._actions,genObjActionTable(self._objects))
+    --print("@DEBUG: action table")
+    --cons = require 'pl.pretty'
+    --cons.dump(self._actions)
+
     --define step cost
     self._step_penalty = -1
     return self
@@ -218,8 +222,7 @@ function gameEnv:nextRandomGame()
   return self:newGame()
 end
 
-function gameEnv:step(action, training,obj_ind)
-  obj_ind = action_obj_ind or 1 --default select egg
+function gameEnv:step(action, training)
   self.tot_steps = self.tot_steps+1
   local current_score, previous_score, previous_lives, reward, terminal
 	previous_score = zork.zorkGetScore()
@@ -233,18 +236,18 @@ function gameEnv:step(action, training,obj_ind)
 	local result_string = read_file(result_file_name)
  	-- set terminal signal
 	if training then
-    terminal = previous_lives > zork.zorkGetLives() -- every time we lose life
+      terminal = previous_lives > zork.zorkGetLives() -- every time we lose life
 	else terminal =
 		zork.zorkGetLives() == 0 -- when evaluating agent only when no more lives
 	end
 
 	-- check for terminal state
 	if result_string:match(self._terminal_string) then
-    terminal = true
-    reward = reward + 100 -- give additional reward
-    --if self.scenario > 3 and not training then  print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves() .. " steps ####", zork.zorkGetLives()) end
+      terminal = true
+      reward = reward + 100 -- give additional reward
+      if self.scenario > 3 and not training then  print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves() .. " steps ####", zork.zorkGetLives()) end
 	end
-    --check for any of the additional
+    --check for any of the additional goal states
     table.foreach(self._additional_rewards, function(k,v)
                                                 if result_string:match(k) then
                                                     reward = reward + v
