@@ -47,8 +47,6 @@ cmd:option('-gpu', -1, 'gpu flag')
 cmd:text()
 
 local opt = cmd:parse(arg)
-print(table.unpack(opt),'done')
-
 --- General setup.
 local game_env, game_actions, agent, opt = setup(opt)
 
@@ -104,11 +102,10 @@ while step < opt.steps do
         assert(step==agent.numSteps, 'trainer step: ' .. step ..
                 ' & agent.numSteps: ' .. agent.numSteps)
         print("Steps: ", step)
-        --agent:report()
-        collectgarbage()
+        agent:report()
     end
 
-    if step%200000 == 0 then collectgarbage() end
+    if step%100000 == 0 then collectgarbage() end
 
     if step % opt.eval_freq == 0 and step > learn_start then
 
@@ -133,9 +130,6 @@ while step < opt.steps do
             end
             -- display screen
             -- @DEBUG CO:win = image.display({image=screen, win=win})
-
-            if estep%1000 == 0 then collectgarbage() end
-
             -- record every reward
             episode_reward = episode_reward + reward
             if reward > 0 then
