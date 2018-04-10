@@ -26,6 +26,9 @@ function trans:__init(args)
     self.insertIndex = 0
 
     self.histIndices = {}
+    --successful parsed action in replay memory
+    --played action counter in replay memory
+    self.action_histogram = torch.zeros(2,self.numActions)
     local histLen = self.histLen
     if self.histType == "linear" then
         -- History is the last histLen frames.
@@ -51,11 +54,11 @@ function trans:__init(args)
             self.histIndices[i] = self.recentMemSize - self.histIndices[i] + 1
         end
     end
-
+    --transition table
     self.s = torch.ByteTensor(self.maxSize, self.stateDim):fill(0)
-    self.a = torch.LongTensor(self.maxSize):fill(0)
-    self.a_o = torch.LongTensor(self.maxSize):fill(0)
-    self.bad_command  = torch.LongTensor(self.maxSize):fill(0)
+    self.a = torch.ShortTensor(self.maxSize):fill(0)
+    self.a_o = torch.ShortTensor(self.maxSize):fill(0)
+    self.bad_command  = torch.ShortTensor(self.maxSize):fill(0)
     self.r = torch.zeros(self.maxSize)
     self.t = torch.ByteTensor(self.maxSize):fill(0)
     self.action_encodings = torch.eye(self.numActions)
@@ -71,13 +74,13 @@ function trans:__init(args)
     self.good_take_action_index = {}
 
     local s_size = self.stateDim*histLen
-
-    self.buf_bad_command  = torch.LongTensor(self.bufferSize):fill(0)
+    --sampling buffers
+    self.buf_bad_command  = torch.ByteTensor(self.bufferSize):fill(0)
     self.buf_s_for_obj    = torch.ByteTensor(self.bufferSize, s_size):fill(0)
-    self.buf_a_for_obj      = torch.LongTensor(self.bufferSize):fill(0)
-    self.buf_a_o          = torch.LongTensor(self.bufferSize):fill(0)
+    self.buf_a_for_obj      = torch.ShortTensor(self.bufferSize):fill(0)
+    self.buf_a_o          = torch.ShortTensor(self.bufferSize):fill(0)
 
-    self.buf_a      = torch.LongTensor(self.bufferSize):fill(0)
+    self.buf_a      = torch.ShortTensor(self.bufferSize):fill(0)
     self.buf_r      = torch.zeros(self.bufferSize)
     self.buf_term   = torch.ByteTensor(self.bufferSize):fill(0)
     self.buf_s      = torch.ByteTensor(self.bufferSize, s_size):fill(0)
@@ -96,6 +99,7 @@ function trans:reset()
     self.numEntries = 0
     self.insertIndex = 0
     self.take_action_index = {}
+    self.good_take_action_index = {}
 end
 
 
@@ -122,6 +126,9 @@ function trans:fill_buffer()
         self.buf_s2[buf_ind]:copy(s2)
         self.buf_term[buf_ind] = term
     end
+    
+    --local obj_sample_histo = torch.zeros(2,self.numObjects+1)
+    
     local size_take = #self.take_action_index
     local size_g_take = #self.good_take_action_index
     assert(size_g_take > 1 and size_take > 1)
@@ -132,41 +139,48 @@ function trans:fill_buffer()
 
         local s, a,r,s2,t,a_o,bad_command, index
 	      repeat
-            if torch.uniform() < 1 - ratio - 0.1 then 	--bias samples to favor at least 10% good actions
-    		        --sample any take action
-		            index = self.take_action_index[torch.random(#self.take_action_index)]
-	          else
-		            -- prioritize good take actions to amend rep bias
-		            index = self.good_take_action_index[torch.random(#self.good_take_action_index)]
-	          end
+            if torch.uniform() < ratio + 0.01 then 	--bias samples to favor at least 1% good actions
+                --prioritize good take actions to amend rep bias
+                index = self.good_take_action_index[torch.random(#self.good_take_action_index)]
+	        else
+                --sample any take action
+                index = self.take_action_index[torch.random(#self.take_action_index)]
+	        end
 	      until index - self.recentMemSize > 2 and index < self.numEntries - self.recentMemSize-- for state concatination
 
-	      s, a, r, s2 ,t, a_o, bad_command = self:get(index -self.recentMemSize +1) -- sample from the transition table
+	    s, a, r, s2 ,t, a_o, bad_command = self:get(index -self.recentMemSize +1) -- sample from the transition table
         --print ("total object action sampled",#self.take_action_index)
         assert(a_o ~= 0) --here we should not have none object action
 
         self.buf_s_for_obj[buf_ind]:copy(s)
         self.buf_a_for_obj[buf_ind] = a
-	      self.buf_a_o[buf_ind]  = a_o
-	      self.buf_bad_command[buf_ind] = bad_command
+	    self.buf_a_o[buf_ind] = a_o
+        self.buf_bad_command[buf_ind] = bad_command
+        --obj_parse_histo[a_o] = obj_parse_histo[a_o] + 1 - bad_command
+        --good parse samples in buffer
+        --obj_sample_histo[1][a_o+1] = obj_sample_histo[1][a_o+1] + 1 - bad_command
+        --total object samples in buffer
+        --obj_sample_histo[2][a_o+1] = obj_sample_histo[2][a_o+1] + 1
 
     end
-
+    --print("@DEBUG sample buffer:\negg,door,tree,leaves,nest,bag,bottle,rope, sword,lantern")
+    --print(obj_sample_histo[{ {}, {2,11} }])
     self.buf_s  = self.buf_s:float():div(255)
     self.buf_s2 = self.buf_s2:float():div(255)
     self.buf_s_for_obj = self.buf_s_for_obj:float():div(255)
 
     if self.gpu and self.gpu >= 0 then
-        self.gpu_s:copy(self.buf_s)
-        self.gpu_s2:copy(self.buf_s2)
-        self.gpu_s_for_obj:copy(self.buf_s_for_obj)
+        self.gpu_s:copy(self.buf_s):cuda()
+        self.gpu_s2:copy(self.buf_s2):cuda()
+        self.gpu_s_for_obj:copy(self.buf_s_for_obj):cuda()
     end
 end
 
 function trans:report()
 	  print("action table size " .. self.numEntries)
-	  print("general take actions ratio " .. #self.take_action_index/self.numEntries)
-	  print("good vs bad take actions ratio " .. #self.good_take_action_index/#self.take_action_index)
+	  print("general take actions " .. #self.take_action_index)
+      print("good take actions " .. #self.good_take_action_index)
+      print("replay action histogram: {good parse/action samples}\n", self.action_histogram[{ {},{1,25} }])
 end
 
 function trans:sample_one()
@@ -347,10 +361,6 @@ function trans:add(s, a, r, term, a_o,bad_command)
     --print("@DEBUG: transition table: add -" .. a .. r .. a_o .. bad_command)
 
 
-    -- Incremenet until at full capacity
-    if self.numEntries < self.maxSize then
-        self.numEntries = self.numEntries + 1
-    end
 
     -- Always insert at next index, then wrap around
     self.insertIndex = self.insertIndex + 1
@@ -359,26 +369,42 @@ function trans:add(s, a, r, term, a_o,bad_command)
         self.insertIndex = 1
     end
     if self.numEntries == self.maxSize then
-	      if self.insertIndex  == self.take_action_index[1] then
-            --[[once table is full this ensures the action index list doesnt point to tuples which
-             have been removed due to the index wrap around]]
-                table.remove(self.take_action_index,1)
+        if self.insertIndex  == self.take_action_index[1] then
+        --[[once table is full this ensures the action index list doesnt point to tuples which
+            have been removed due to the index wrap around]]
+            table.remove(self.take_action_index,1)
         end
-	      if self.insertIndex  == self.good_take_action_index[1] then
-                table.remove(self.good_take_action_index,1)
+	    if self.insertIndex  == self.good_take_action_index[1] then
+            table.remove(self.good_take_action_index,1)
         end
+        --remove retired action from histograms:
+        --good action counter decrease
+        local evicted_action_index = self.a[self.insertIndex]
+        print(evicted_action_index,self.insertIndex)
+        self.action_histogram[1][evicted_action_index] = self.action_histogram[1][evicted_action_index] - (1 - self.bad_command[self.insertIndex])
+        --played action counter (in replay memory) decrease
+        self.action_histogram[2][evicted_action_index] = self.action_histogram[2][evicted_action_index] - 1
     end
     -- Overwrite (s,a,r,t) at insertIndex
+    assert(a>0)
+    assert(a~= nil)
+    assert(a<self.numActions+1)
     self.s[self.insertIndex] = s:clone():float():mul(255)
     self.a[self.insertIndex] = a
     self.r[self.insertIndex] = r
     self.a_o[self.insertIndex] = a_o
     self.bad_command[self.insertIndex] = bad_command
 
+    self.action_histogram[1][a] = self.action_histogram[1][a] + (1 - bad_command)
+    self.action_histogram[2][a] = self.action_histogram[2][a] + 1
+    -- Incremenet until at full capacity
+    if self.numEntries < self.maxSize then
+        self.numEntries = self.numEntries + 1
+    end
     if a_o~= 0 then --take action recorded
         table.insert(self.take_action_index,self.insertIndex) --save table index
         if (bad_command == 0) then 	-- if this is a good action save the index in an aux table for later sample balancing
-	         table.insert(self.good_take_action_index, self.insertIndex) end
+	        table.insert(self.good_take_action_index, self.insertIndex) end
     end
 
     if term then
@@ -470,8 +496,8 @@ function trans:read(file)
     self.insertIndex = 0
 
     self.s = torch.ByteTensor(self.maxSize, self.stateDim):fill(0)
-    self.a = torch.LongTensor(self.maxSize):fill(0)
-    self.a_o = torch.LongTensor(self.maxSize):fill(0)
+    self.a = torch.ShortTensor(self.maxSize):fill(0)
+    self.a_o = torch.ShortTensor(self.maxSize):fill(0)
     self.r = torch.zeros(self.maxSize)
     self.t = torch.ByteTensor(self.maxSize):fill(0)
     self.action_encodings = torch.eye(self.numActions)
@@ -486,15 +512,15 @@ function trans:read(file)
     self.take_action_index = {}
     self.good_take_action_index = {}
 
-    self.buf_a      = torch.LongTensor(self.bufferSize):fill(0)
+    self.buf_a      = torch.ShortTensor(self.bufferSize):fill(0)
     self.buf_r      = torch.zeros(self.bufferSize)
     self.buf_term   = torch.ByteTensor(self.bufferSize):fill(0)
     self.buf_s      = torch.ByteTensor(self.bufferSize, self.stateDim * self.histLen):fill(0)
     self.buf_s2     = torch.ByteTensor(self.bufferSize, self.stateDim * self.histLen):fill(0)
     -- set the sample buffer for object related states and actions
-    self.buf_a_o     = torch.LongTensor(self.bufferSize):fill(0)
-    self.buf_bad_command = torch.LongTensor(self.bufferSize):fill(0)
-    self.buf_a_for_obj = torch.LongTensor(self.bufferSize):fill(0)
+    self.buf_a_o     = torch.ShortTensor(self.bufferSize):fill(0)
+    self.buf_bad_command = torch.ByteTensor(self.bufferSize):fill(0)
+    self.buf_a_for_obj = torch.ShortTensor(self.bufferSize):fill(0)
     self.buf_s_for_obj = torch.ByteTensor(self.bufferSize, self.stateDim * self.histLen):fill(0)
 
     if self.gpu and self.gpu >= 0 then
