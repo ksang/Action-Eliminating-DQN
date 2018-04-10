@@ -156,8 +156,8 @@ function nql:__init(args)
     if self.gpu and self.gpu >= 0 then
         self.network:cuda()
         self.obj_network:cuda()
-        --self.Y_buff:cuda()
-	      --self.valid_Y_buff:cuda()
+        self.Y_buff:cuda()
+	    self.valid_Y_buff:cuda()
         self.objNetLoss:cuda()
         self.tensor_type = torch.CudaTensor
     else
@@ -166,18 +166,20 @@ function nql:__init(args)
         self.tensor_type = torch.FloatTensor
 
     end
-
-    -- Load preprocessing network.
-    if not (type(self.preproc == 'string')) then
+    
+    if self.preproc ~= nil then
+      -- Load preprocessing network.
+      if not (type(self.preproc == 'string')) then
         error('The preprocessing is not a string')
-    end
-    msg, err = pcall(require, self.preproc)
-    if not msg then
+      end
+      msg, err = pcall(require, self.preproc)
+      if not msg then
         error("Error loading preprocessing net")
+      end
+      self.preproc = err
+      self.preproc = self:preproc()
+      self.preproc:float()
     end
-    self.preproc = err
-    self.preproc = self:preproc()
-    self.preproc:float()
 
     -- Create transition table.
     ---- assuming the transition table always gets floating point input
@@ -443,7 +445,7 @@ function nql:compute_validation_statistics()
     if self.agent_tweak ~= VANILA then -- calc object net validation info
       self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
       --print(self.valid_Y_buff)
-      local h_x = self.obj_network:forward(self.valid_s_for_obj):cuda()
+      local h_x = self.obj_network:forward(self.valid_s_for_obj)
       local J = self.objNetLoss:forward(h_x, self.valid_Y_buff)
       local h_y = 1 - h_x:le(0.5) -- calculate prediction
       local sum = 0
