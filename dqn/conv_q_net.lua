@@ -13,16 +13,15 @@ require 'nnutils'
 
 return function(args)
   assert(args.n_objects)
-  --INPUTS
   local in_row_s = 65
   local in_col = 300
   local in_hist = 4
   local input_dims_s = {in_hist,in_row_s,in_col}
   local region_hight = {1,2,3} -- hight only of filter, width will be 'in_col'
-  local n_filters = 10 -- number of filters per region size
+  local n_filters = 100 -- number of filters per region size
   local tot_filters_s = table.getn(region_hight)*n_filters
   local tot_filters_a = 1*n_filters
-  local output_size = args.n_objects
+  local output_size = args.n_actions
   ----------------------------
   -- NETWORK FOR STATES ONLY
   ----------------------------
@@ -43,11 +42,10 @@ return function(args)
   net_s:add(nn.SpatialMaxPooling(1,((in_row_s-math.min(unpack(region_hight))+2*0)/1)+1))
   net_s:add(nn.Reshape(tot_filters_s))
   net_s:add(nn.Linear(tot_filters_s,output_size))
-  net_s:add(nn.Sigmoid())
 
   --[[local net_s = nn.Sequential()
   net_s:add(nn.Reshape(in_row_s*in_col*in_hist))
   net_s:add(nn.Linear(in_row_s*in_col*in_hist,emb_length))]]
-  print("AEN net:\n", net_s)
+  print("Q net:\n", net_s)
   return net_s
 end
