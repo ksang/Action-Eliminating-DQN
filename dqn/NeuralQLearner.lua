@@ -152,10 +152,10 @@ function nql:__init(args)
             self.obj_network:float()
         end
     --#########################################
-    self.obj_w, self.obj_dw = self.obj_network:getParameters()
-    print("number of parameterns in object network",#self.obj_w)
-    --#########################################
-    end
+        self.obj_w, self.obj_dw = self.obj_network:getParameters()
+        print("number of parameterns in object network",#self.obj_w)
+        --#########################################
+        end
     -- end of object network init
 --#########################################
 
