@@ -125,48 +125,50 @@ function nql:__init(args)
 --  init obj network
     self.Y_buff         = torch.CudaTensor(self.minibatch_size,self.n_objects) -- buffer for multiclass labels
     self.valid_Y_buff   = torch.CudaTensor(self.valid_size,self.n_objects)
-
-    local msg, err = pcall(require, self.obj_network)
-    if not msg then
-        -- try to load saved agent
-        local err_msg, exp = pcall(torch.load, self.obj_network)
-        if not err_msg then
-            error("Could not find object network file ")
-        end
---[[        if self.best and exp.best_model then
-            self.obj_network = exp.best_model
+    if self.agent_tweak ~= VANILA then
+        local msg, err = pcall(require, self.obj_network)
+        if not msg then
+            -- try to load saved agent
+            local err_msg, exp = pcall(torch.load, self.obj_network)
+            if not err_msg then
+                error("Could not find object network file ")
+            end
         else
-            self.obj_network = exp.model
-        end]]
-    else
-        print('Creating Object Network from ' .. self.obj_network)
-        self.obj_network = err
-        self.obj_network = self:obj_network(args)
-
+            print('Creating Object Network from ' .. self.obj_network)
+            self.obj_network = err
+            self.obj_network = self:obj_network(args)
+        end
+        -- set object network loss for multi lable learning
+        --self.objNetLoss = nn.MultiLabelSoftMarginCriterion() --need to remove sigmoid activation from the network
+        self.objNetLoss = nn.BCECriterion()
+        self.optimState = {learningRate = self.obj_lr, learningRateDecay = 0.005}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
+        self.last_object_net_accuracy = 0
+        if self.gpu and self.gpu >= 0 then
+            self.obj_network:cuda()
+            self.Y_buff:cuda()
+            self.valid_Y_buff:cuda()
+            self.objNetLoss:cuda()
+        else
+            self.obj_network:float()
+        end
+    --#########################################
+    self.obj_w, self.obj_dw = self.obj_network:getParameters()
+    print("number of parameterns in object network",#self.obj_w)
+    --#########################################
     end
-    -- set object network loss for multi lable learning
-    --self.objNetLoss = nn.MultiLabelSoftMarginCriterion() --need to remove sigmoid activation from the network
-    self.objNetLoss = nn.BCECriterion()
-    self.optimState = {learningRate = self.obj_lr, learningRateDecay = 0.005}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
-    self.last_object_net_accuracy = 0
     -- end of object network init
 --#########################################
 
 
     if self.gpu and self.gpu >= 0 then
         self.network:cuda()
-        self.obj_network:cuda()
-        self.Y_buff:cuda()
-	    self.valid_Y_buff:cuda()
-        self.objNetLoss:cuda()
         self.tensor_type = torch.CudaTensor
     else
         self.network:float()
-        self.obj_network:float()
         self.tensor_type = torch.FloatTensor
 
     end
-    
+
     if self.preproc ~= nil then
       -- Load preprocessing network.
       if not (type(self.preproc == 'string')) then
@@ -191,7 +193,8 @@ function nql:__init(args)
         histLen = self.hist_len, gpu = self.gpu,
         maxSize = self.replay_memory, histType = self.histType,
         histSpacing = self.histSpacing, nonTermProb = self.nonTermProb,
-        bufferSize = self.bufferSize
+        bufferSize = self.bufferSize,
+        sample_parse_buffer = self.agent_tweak ~= VANILA
     }
 
     self.transitions = dqn.TransitionTable(transition_args)
@@ -208,12 +211,8 @@ function nql:__init(args)
 
     self.q_max = 1
     self.r_max = 1
---#########################################
-    self.obj_w, self.obj_dw = self.obj_network:getParameters()
---#########################################
     self.w, self.dw = self.network:getParameters()
     self.dw:zero()
-    print("number of parameterns in object network",#self.obj_w)
     print("number of parameterns in state network",#self.w)
 
 
@@ -408,7 +407,7 @@ function nql:objLearnMiniBatch(s,a,a_o,bad_command)
         --print ("after cmul",dJ_dh_x)
 	      --local dJ_dh_x = self.objNetLoss:backward(h_x, self.Y_buff)--:cuda()
         self.obj_network:backward(s, dJ_dh_x) -- computes and updates gradTheta
-	      return J, self.obj_dw
+	    return J, self.obj_dw
     end
      optim.adam(feval, self.obj_w, self.optimState)
 end

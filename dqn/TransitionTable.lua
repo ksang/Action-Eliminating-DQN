@@ -24,7 +24,7 @@ function trans:__init(args)
     self.gpu = args.gpu
     self.numEntries = 0
     self.insertIndex = 0
-
+    self.sample_parse_buffer = args.sample_parse_buffer
     self.histIndices = {}
     --successful parsed action in replay memory
     --played action counter in replay memory
@@ -79,7 +79,7 @@ function trans:__init(args)
     self.buf_s_for_obj    = torch.ByteTensor(self.bufferSize, s_size):fill(0)
     self.buf_a_for_obj      = torch.ShortTensor(self.bufferSize):fill(0)
     self.buf_a_o          = torch.ShortTensor(self.bufferSize):fill(0)
-
+    
     self.buf_a      = torch.ShortTensor(self.bufferSize):fill(0)
     self.buf_r      = torch.zeros(self.bufferSize)
     self.buf_term   = torch.ByteTensor(self.bufferSize):fill(0)
@@ -127,52 +127,58 @@ function trans:fill_buffer()
         self.buf_term[buf_ind] = term
     end
     
-    --local obj_sample_histo = torch.zeros(2,self.numObjects+1)
-    
-    local size_take = #self.take_action_index
-    local size_g_take = #self.good_take_action_index
-    assert(size_g_take > 1 and size_take > 1)
-    local ratio =size_g_take/size_take
+    if self.sample_parse_buffer then
+        --local obj_sample_histo = torch.zeros(2,self.numObjects+1)
+        
+        local size_take = #self.take_action_index
+        local size_g_take = #self.good_take_action_index
+        assert(size_g_take > 1 and size_take > 1)
+        local ratio =size_g_take/size_take
 
-    -- fill object related buffers
-    for buf_ind=1,self.bufferSize do
+        -- fill object related buffers
+        for buf_ind=1,self.bufferSize do
 
-        local s, a,r,s2,t,a_o,bad_command, index
-	      repeat
-            if torch.uniform() < ratio + 0.01 then 	--bias samples to favor at least 1% good actions
-                --prioritize good take actions to amend rep bias
-                index = self.good_take_action_index[torch.random(#self.good_take_action_index)]
-	        else
-                --sample any take action
-                index = self.take_action_index[torch.random(#self.take_action_index)]
-	        end
-	      until index - self.recentMemSize > 2 and index < self.numEntries - self.recentMemSize-- for state concatination
+            local s, a,r,s2,t,a_o,bad_command, index
+            repeat
+                if torch.uniform() < ratio + 0.01 then 	--bias samples to favor at least 1% good actions
+                    --prioritize good take actions to amend rep bias
+                    index = self.good_take_action_index[torch.random(#self.good_take_action_index)]
+                else
+                    --sample any take action
+                    index = self.take_action_index[torch.random(#self.take_action_index)]
+                end
+            until index - self.recentMemSize > 2 and index < self.numEntries - self.recentMemSize-- for state concatination
 
-	    s, a, r, s2 ,t, a_o, bad_command = self:get(index -self.recentMemSize +1) -- sample from the transition table
-        --print ("total object action sampled",#self.take_action_index)
-        assert(a_o ~= 0) --here we should not have none object action
+            s, a, r, s2 ,t, a_o, bad_command = self:get(index -self.recentMemSize +1) -- sample from the transition table
+            --print ("total object action sampled",#self.take_action_index)
+            assert(a_o ~= 0) --here we should not have none object action
 
-        self.buf_s_for_obj[buf_ind]:copy(s)
-        self.buf_a_for_obj[buf_ind] = a
-	    self.buf_a_o[buf_ind] = a_o
-        self.buf_bad_command[buf_ind] = bad_command
-        --obj_parse_histo[a_o] = obj_parse_histo[a_o] + 1 - bad_command
-        --good parse samples in buffer
-        --obj_sample_histo[1][a_o+1] = obj_sample_histo[1][a_o+1] + 1 - bad_command
-        --total object samples in buffer
-        --obj_sample_histo[2][a_o+1] = obj_sample_histo[2][a_o+1] + 1
+            self.buf_s_for_obj[buf_ind]:copy(s)
+            self.buf_a_for_obj[buf_ind] = a
+            self.buf_a_o[buf_ind] = a_o
+            self.buf_bad_command[buf_ind] = bad_command
+            --obj_parse_histo[a_o] = obj_parse_histo[a_o] + 1 - bad_command
+            --good parse samples in buffer
+            --obj_sample_histo[1][a_o+1] = obj_sample_histo[1][a_o+1] + 1 - bad_command
+            --total object samples in buffer
+            --obj_sample_histo[2][a_o+1] = obj_sample_histo[2][a_o+1] + 1
 
+        end
+        --print("@DEBUG sample buffer:\negg,door,tree,leaves,nest,bag,bottle,rope, sword,lantern")
+        --print(obj_sample_histo[{ {}, {2,11} }])
     end
-    --print("@DEBUG sample buffer:\negg,door,tree,leaves,nest,bag,bottle,rope, sword,lantern")
-    --print(obj_sample_histo[{ {}, {2,11} }])
     self.buf_s  = self.buf_s:float():div(255)
     self.buf_s2 = self.buf_s2:float():div(255)
-    self.buf_s_for_obj = self.buf_s_for_obj:float():div(255)
+    if self.sample_parse_buffer then
+      self.buf_s_for_obj = self.buf_s_for_obj:float():div(255)
+    end
 
     if self.gpu and self.gpu >= 0 then
         self.gpu_s:copy(self.buf_s):cuda()
         self.gpu_s2:copy(self.buf_s2):cuda()
-        self.gpu_s_for_obj:copy(self.buf_s_for_obj):cuda()
+        if self.sample_parse_buffer then
+          self.gpu_s_for_obj:copy(self.buf_s_for_obj):cuda()
+        end
     end
 end
 
@@ -380,7 +386,6 @@ function trans:add(s, a, r, term, a_o,bad_command)
         --remove retired action from histograms:
         --good action counter decrease
         local evicted_action_index = self.a[self.insertIndex]
-        print(evicted_action_index,self.insertIndex)
         self.action_histogram[1][evicted_action_index] = self.action_histogram[1][evicted_action_index] - (1 - self.bad_command[self.insertIndex])
         --played action counter (in replay memory) decrease
         self.action_histogram[2][evicted_action_index] = self.action_histogram[2][evicted_action_index] - 1
