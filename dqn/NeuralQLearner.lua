@@ -36,6 +36,7 @@ function nql:__init(args)
     self.obj_max = args.obj_max or #args.game_objects
     assert(self.obj_sample <= self.n_objects and self.obj_sample >= 0)
     assert(self.obj_max <= self.n_objects and self.obj_max >= 0)
+    self.parse_lable_scale = args.parse_lable_scale or 1
 
     if args.agent_tweak:match("greedy") then -- tweak option for large action space
         self.agent_tweak  = GREEDY
@@ -399,8 +400,11 @@ function nql:objLearnMiniBatch(s,a,a_o,bad_command)
         --print("buffer after setting",self.Y_buff)
         local grad_image = self.Y_buff:ne(0.5):cuda() -- maps which gradients we wish to keep
         --print("grad image",grad_image)
+        --parse_lable_scale < 1 decreases the false positive count and increases the precision
+        local label_weights = self.Y_buff:eq(1)*self.parse_lable_scale + self.Y_buff:eq(0)
+        local w_bce = nn.BCECriterion(label_weights):cuda()
         local h_x = self.obj_network:forward(s):cuda()
-        local J = self.objNetLoss:forward(h_x, self.Y_buff)
+        local J = w_bce:forward(h_x, self.Y_buff)
         --print("@DEBUG loss calculated "..J, "\npredictions = \n","actual labels= \n",h_x,self.Y_buff) -- just for debugging purpose
 	      --zero out none informative gradients
 	      local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda())
