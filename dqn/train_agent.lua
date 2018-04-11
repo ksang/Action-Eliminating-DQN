@@ -99,13 +99,15 @@ while step < opt.steps do
     -- @DEBUG CO: win = image.display({image=screen, win=win})
 
     if step % opt.prog_freq == 0 then
-        assert(step==agent.numSteps, 'trainer step: ' .. step ..
-                ' & agent.numSteps: ' .. agent.numSteps)
-        print("Steps: ", step)
-        agent:report()
+        if opt.verbose > 2 then
+            assert(step==agent.numSteps, 'trainer step: ' .. step ..
+            ' & agent.numSteps: ' .. agent.numSteps)
+            print("Steps: ", step)
+            agent:report()
+        end
     end
 
-    if step%100000 == 0 then collectgarbage() end
+    if step%10000 == 0 then collectgarbage() end
 
     if step % opt.eval_freq == 0 and step > learn_start then
 
