@@ -1,71 +1,93 @@
 require 'initenv'
 require "Scale"
-require 'NeuralQLearner'
 require 'cutorch'
 require 'nn'
-require 'nnutils'
 require 'cunn'
-require 'nngraph'
-require 'image'
+require 'cudnn'
+
 fs = require 'paths'
 plt = require 'gnuplot'
 local a_r_table = {}
-function addAgentToPlotTable(agent_name,title,limit,object_net_info, refresh)
-   if not refresh and fs.filep(agent_name.."_result_summary.t7")  then
-        addAgentFromSummary(agent_name,limit,title)
-    else
 
-      local agent = torch.load(agent_name..".t7")
-      limit = math.min(#agent.reward_history,limit or #agent.reward_history)
-      print (#agent.reward_history)
-      DQN_reward = torch.Tensor(agent.reward_history)
-      
-      if agent.obj_loss_history and object_net_info then
-        local AEN_loss ,AEN_acc = torch.zeros(limit),torch.zeros(limit)
-        for i=1,limit do
-          AEN_loss[i],AEN_acc[i] = agent.obj_loss_history[i][1], agent.obj_loss_history[i][2]
-        end
-      end
-      table.insert(a_r_table,{  title or string.gsub(agent_name, "_", " " ) , DQN_reward:narrow(1,1,math.min(DQN_reward:size()[1],limit))})
-      if object_net_info then
-        local AEN_stat_table ={{'Binary Cross Entropy loss', AEN_loss:narrow(1,1,limit)},{'Accuracy',AEN_acc:narrow(1,1,limit)}}
-        --plot seperate graph for object network
-        plotExpFromTable(AEN_stat_table,nil,nil,title or agent_name .. " AEN Preformanc",nil,nil)
-      end
-      torch.save(agent_name.."_result_summary.t7",{reward = DQN_reward,loss = AEN_loss,acc = AEN_acc,limit =limit, title =title or agent_name})
+--plot AEN agent from its original t7 file, a summary file will be created and used when available
+function plotAgent(agent_name,limit,title,object_net_info,refresh)
+  local r_table = {}
+  addAgentToPlotTable(r_table,agent_name,limit,title,object_net_info,refresh)
+  plotExpFromTable(r_table,"Average Cumulative Reward",nil,nil,nil,nil,nil)
+end
+
+--directly plot AEN agent from summary t7 file
+function plotAgentFromSummary(agent_summary,limit,title,object_net_info)
+  local r_table = {}
+  addAgentFromSummary(r_table,agent_summary,limit,title,object_net_info)
+  plotExpFromTable(r_table,"Average Cumulative Reward",nil,nil,nil,nil,nil)
+end
+
+--use to extract only performance metrics from the agent file
+function summarizeAgent(agent_name,title)
+  local agent = torch.load(agent_name..".t7")
+  local length = #agent.reward_history
+  print ("total reward history in file ", length)
+  local DQN_reward = torch.Tensor(agent.reward_history)
+  if  #agent.obj_loss_history < 1 then
+    print("AEN records were not found")
+  else 
+    local AEN_loss ,AEN_acc = torch.zeros(length),torch.zeros(length)
+    for i=1,length do
+      AEN_loss[i],AEN_acc[i] = agent.obj_loss_history[i][1], agent.obj_loss_history[i][2]
     end
+  end
+  local agent_summary = {reward = DQN_reward,loss = AEN_loss,acc = AEN_acc,length = length, title = title or string.gsub(agent_name, "_", " " ),arguments = agent.arguments}
+  torch.save(agent_name.."_result_summary.t7",agent_summary)
+  return agent_summary
 end
 
-function addAgentFromSummary(agent_name,limit,title)
-    local agent_summary = torch.load(agent_name.."_result_summary.t7")
-    limit = limit or agent_summary.limit
-    title = title or string.gsub(agent_name, "_", " " )
-    if agent_summary.loss then
-      plt.figure()
-      plt.title(title.." Object Network Preformance")
-      plt.plot({'Binary Cross Entropy loss', agent_summary.loss:narrow(1,1,math.min(limit,agent_summary.limit))},{'Accuracy',agent_summary.acc:narrow(1,1,limit)})
-      plt.movelegend('right','bottom')
-      plt.xlabel('Epochs, 10000 steps per epoch')
-    end
-    print(agent_summary.reward)
-	table.insert(a_r_table,{title, torch.Tensor(agent_summary.reward):narrow(1,1,limit)})
-end
---gif should be a string containing png name
-function plotExpFromTable(table,ylabel,legend_pos,title,fig_num,png)
-    if png ~= nil then 
-      plt.pngfigure(png)
-    else 
-      plt.figure(fig_num)
-    end 
-    --plt.title('title')
-    plt.xlabel('Steps 10k')
-    plt.ylabel(ylabel)
-    legend_pos = legend_pos or {'right','bottom'}
-    plt.movelegend(unpack(legend_pos))
-    plt.plot(a_r_table)
-    gnuplot.plotflush()
+--use to add multiple agent plots on the same figure
+function addAgentToPlotTable(r_table,agent_name,limit,title,object_net_info, refresh)
+  local agent_summary
+  assert(agent_name and "nil agent file provided") 
+  if not refresh and fs.filep(agent_name.."_result_summary.t7")  then
+    agent_summary = torch.load(agent_name.."_result_summary.t7")    
+  else
+    agent_summary = summarizeAgent(agent_name,title)
+  end
+  addAgentFromSummary(r_table,agent_summary,limit,title,object_net_info)
 end
 
+--same as above but only uses summary (usefull when using multiple machines to avoid copying the entire agent)
+function addAgentFromSummary(r_table,agent_summary,limit,title,object_net_info)
+  print ("total reward history in file ",agent_summary.length)
+  limit = math.min(limit or agent_summary.length, agent_summary.length)
+  title = title or agent_summary.title
+  if agent_summary.loss and object_net_info then
+    local AEN_stat_table ={{'Binary Cross Entropy loss', agent_summary.loss:narrow(1,1,limit)},{'Accuracy',agent_summary.acc:narrow(1,1,limit)}}
+    --plot seperate graph for object network
+    plotExpFromTable(AEN_stat_table,nil,nil,title or string.gsub(agent_name, "_", " " ) .. " AEN Preformance",nil,nil)
+  end
+  
+  local agent_reward_for_plot = { title , agent_summary.reward:narrow(1,1,limit)}
+  table.insert(r_table,agent_reward_for_plot)
+end
+
+--used to create figures from the tables 
+function plotExpFromTable(table,ylabel,legend_pos,figure_title,fig_num,png)
+  --gif should be a string containing png name
+  if png ~= nil then 
+    plt.pngfigure(png)
+  else 
+    plt.figure(fig_num)
+  end 
+  if figure_title then plt.title(figure_title) end
+  plt.xlabel('Steps 10k')
+  plt.ylabel(ylabel)
+  legend_pos = legend_pos or {'right','bottom'}
+  plt.movelegend(unpack(legend_pos))
+  plt.plot(table)
+  gnuplot.plotflush()
+end
+
+
+------legacy------
 --insert agents here
 --EGG 5  take actions
 --[[
@@ -140,7 +162,7 @@ zork_FC_merged_amended_scenario_4_step_-2_sample_5_drop_prob_0.8_lr1.7e-06_215a"
 addAgentToPlotTable("DQN3_0_1_zork_FC_merged_amended_scenario_4_step_-2_sample_10_drop_prob_0.99_lr1.7e-06_215a","Merged s10 1.7e-6",limit)
 plt.figure(4)
 plt.title('DQN Agent Reward: Troll quest, -2 step, extreme action space')
-plt.xlabel('Epochs, 10000 steps per epoch')
+plt.xlabel('Epochs, 10000 steps per epoch')or agent_name
 plt.movelegend('right','bottom')
 plt.plot(a_r_table)
 a_r_table = {}
@@ -152,7 +174,7 @@ gnuplot.plotflush()
 --addAgentToPlotTable("zork_scenario_1_merged_Q-arch_conv_q_net_AEN-arch_conv_obj_net_max_2_sample_1_drop_prob_0.9_lr0.0025_14a","2 conv merged lr 0.0025",limit,true)
 --addAgentToPlotTable("zork_scenario_1_merged_Q-arch_1HNN100_AEN-arch_linear_max_2_sample_1_drop_prob_0.9_lr0.0017_14a","hnn + lin merged lr 0.0017",limit,true)
 --plotExpFromTable(a_r_table,"Average Cumulative Reward",nil,"egg 5",nil,nil)
-
+--[[
 limit = 195
 a_r_table = {}
 addAgentToPlotTable("zork_scenario_3_vanila_Q-arch_conv_q_net_lr0.0025_209a",nil,limit)
@@ -161,3 +183,4 @@ addAgentToPlotTable("zork_scenario_3_vanila_Q-arch_conv_q_net_lr0.0025_209a",nil
 addAgentFromSummary("zork_scenario_3_merged_Q-arch_conv_q_net_AEN-arch_conv_obj_net_max_5_sample_5_drop_prob_0.9_lr0.0025_209a",limit)
 addAgentFromSummary("zork_scenario_3_greedy_Q-arch_conv_q_net_AEN-arch_conv_obj_net_max_5_sample_5_lr0.0025_209a",limit)
 plotExpFromTable(a_r_table,"Average Cumulative Reward",nil,"egg 200",nil,nil)
+]]
