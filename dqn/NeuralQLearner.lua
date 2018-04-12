@@ -141,7 +141,7 @@ function nql:__init(args)
         end
         -- set object network loss for multi lable learning
         --self.objNetLoss = nn.MultiLabelSoftMarginCriterion() --need to remove sigmoid activation from the network
-        self.objNetLoss = nn.BCECriterion()
+        self.objNetLoss = nn.BCECriterion(torch.FloatTensor(self.n_objects):fill(self.parse_lable_scale))
         self.optimState = {learningRate = self.obj_lr, learningRateDecay = 0.005}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
         self.last_object_net_accuracy = 0
         if self.gpu and self.gpu >= 0 then
@@ -149,6 +149,7 @@ function nql:__init(args)
             self.Y_buff:cuda()
             self.valid_Y_buff:cuda()
             self.objNetLoss:cuda()
+            cudnn.convert(self.obj_network,cudnn)
         else
             self.obj_network:float()
         end
@@ -162,7 +163,10 @@ function nql:__init(args)
 
 
     if self.gpu and self.gpu >= 0 then
+        cudnn.benchmark = true
+        cudnn.fastest = true
         self.network:cuda()
+        cudnn.convert(self.network,cudnn)
         self.tensor_type = torch.CudaTensor
     else
         self.network:float()
@@ -401,15 +405,14 @@ function nql:objLearnMiniBatch(s,a,a_o,bad_command)
         local grad_image = self.Y_buff:ne(0.5):cuda() -- maps which gradients we wish to keep
         --print("grad image",grad_image)
         --parse_lable_scale < 1 decreases the false positive count and increases the precision
-        local label_weights = self.Y_buff:eq(1)*self.parse_lable_scale + self.Y_buff:eq(0)
-        local w_bce = nn.BCECriterion(label_weights):cuda()
+        --local label_weights = self.Y_buff:eq(1):mul(self.parse_lable_scale) + self.Y_buff:eq(0)
         local h_x = self.obj_network:forward(s):cuda()
-        local J = w_bce:forward(h_x, self.Y_buff)
+        local J = self.objNetLoss:forward(h_x, self.Y_buff)
         --print("@DEBUG loss calculated "..J, "\npredictions = \n","actual labels= \n",h_x,self.Y_buff) -- just for debugging purpose
-	      --zero out none informative gradients
-	      local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda())
+	    --zero out none informative gradients
+	    local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda())
         --print ("after cmul",dJ_dh_x)
-	      --local dJ_dh_x = self.objNetLoss:backward(h_x, self.Y_buff)--:cuda()
+	    --local dJ_dh_x = self.objNetLoss:backward(h_x, self.Y_buff)--:cuda()
         self.obj_network:backward(s, dJ_dh_x) -- computes and updates gradTheta
 	    return J, self.obj_dw
     end
