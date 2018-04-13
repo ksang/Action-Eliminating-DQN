@@ -7,4 +7,5 @@ cmd:option("-limit",1000,"[0..] maximum number of points")
 cmd:option("-AEN_pref",false,"[true/false] plot AEN figure")
 cmd:option("-refresh",false,"[true/false] refresh summary")
 params = cmd:parse(arg)
+if params.title == '' then  params.title = nil end
 plotAgent(params.agent,params.limit,params.title,params.AEN_pref,params.refresh)

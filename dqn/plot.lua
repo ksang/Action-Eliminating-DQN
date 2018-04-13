@@ -27,7 +27,6 @@ end
 function summarizeAgent(agent_name,title)
   local agent = torch.load(agent_name..".t7")
   local length = #agent.reward_history
-  print ("total reward history in file ", length)
   local DQN_reward = torch.Tensor(agent.reward_history)
   if  #agent.obj_loss_history < 1 then
     print("AEN records were not found")
