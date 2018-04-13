@@ -30,6 +30,7 @@ function nql:__init(args)
     self.obj_network = args.obj_net_file or 'conv_obj_net'
     self.obj_start = args.obj_start*args.learn_start or args.learn_start or 0
     self.obj_lr = args.obj_lr or 0.0001
+    self.AEN_sample_bias = args.AEN_sample_bias or 0
     assert(self.obj_start >= 1)
     assert(self.obj_thresh_acc >= 0 and self.obj_thresh_acc < 1)
     self.obj_sample = args.obj_sample or 0
@@ -199,7 +200,8 @@ function nql:__init(args)
         maxSize = self.replay_memory, histType = self.histType,
         histSpacing = self.histSpacing, nonTermProb = self.nonTermProb,
         bufferSize = self.bufferSize,
-        sample_parse_buffer = self.agent_tweak ~= VANILA
+        sample_parse_buffer = self.agent_tweak ~= VANILA,
+        AEN_sample_bias = self.AEN_sample_bias
     }
 
     self.transitions = dqn.TransitionTable(transition_args)

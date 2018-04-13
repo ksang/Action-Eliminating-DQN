@@ -26,6 +26,7 @@ function trans:__init(args)
     self.insertIndex = 0
     self.sample_parse_buffer = args.sample_parse_buffer
     self.histIndices = {}
+    self.AEN_sample_bias = args.AEN_sample_bias or 0
     --successful parsed action in replay memory
     --played action counter in replay memory
     self.action_histogram = torch.zeros(2,self.numActions)
@@ -140,7 +141,7 @@ function trans:fill_buffer()
 
             local s, a,r,s2,t,a_o,bad_command, index
             repeat
-                if torch.uniform() < ratio + 0.01 then 	--bias samples to favor at least 1% good actions
+                if torch.uniform() < self.AEN_sample_bias then 	--bias samples to favor at least 1% good actions
                     --prioritize good take actions to amend rep bias
                     index = self.good_take_action_index[torch.random(#self.good_take_action_index)]
                 else
