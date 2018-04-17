@@ -22,8 +22,8 @@ if [ $scenario -gt 3 ]; then
   obj_sample=5                  #[0,n_objects] how many objects to sample
   obj_max=10                    #[0,n_objects] how many most likely objects to consider with greedy action wp 1
   steps=5000000
-  learn_start=100000
-  eps_endt=1000000
+  learn_start=200000
+  eps_endt=500000
 elif [ $scenario -gt 1 ]; then
   obj_sample=5                    
   obj_max=5
@@ -38,9 +38,9 @@ else
   eps_endt=500000
 fi
 bad_parse_penalty_scale=0       #apply penalty multiplier for bad commands
-AEN_sample_bias=0.1             #used to increse the number of successful parse samples in AEN buffers
-parse_lable_scale=0.01          #from TF guide: A coefficient to use on the positive labels, value < 1 decreases the false positive count and increases the precision.
-lr=0.0025                       #DQN learning rate
+AEN_sample_bias=0.2             #used to increse the number of successful parse samples in AEN buffers
+parse_lable_scale=0.001         #from TF guide: A coefficient to use on the positive labels, value < 1 decreases the false positive count and increases the precision.
+lr=0.00043                      #DQN learning rate
 obj_lr=0.00043                  #AEN learning rate
 discount=0.8
 replay_memory=1000000
@@ -53,7 +53,7 @@ gpu=$GPU
 seed=$SEED
 verbose=2
 bufferSize=512                  #512
-valid_size=500                  #500
+valid_size=512                  #500
 minibatch_size=32               #32
 #####################################################
 
@@ -73,8 +73,8 @@ fi
 
 env_params="bad_parse_penalty_scale="$bad_parse_penalty_scale",game_scenario="$scenario""
 game_path=$PWD"/dqn/zork"
-n_replay=1
-update_freq=4
+n_replay=4
+update_freq=100
 actrep=1
 random_starts=0
 num_threads=4

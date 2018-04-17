@@ -80,7 +80,7 @@ function trans:__init(args)
     self.buf_s_for_obj    = torch.ByteTensor(self.bufferSize, s_size):fill(0)
     self.buf_a_for_obj      = torch.ShortTensor(self.bufferSize):fill(0)
     self.buf_a_o          = torch.ShortTensor(self.bufferSize):fill(0)
-    
+
     self.buf_a      = torch.ShortTensor(self.bufferSize):fill(0)
     self.buf_r      = torch.zeros(self.bufferSize)
     self.buf_term   = torch.ByteTensor(self.bufferSize):fill(0)
@@ -127,10 +127,10 @@ function trans:fill_buffer()
         self.buf_s2[buf_ind]:copy(s2)
         self.buf_term[buf_ind] = term
     end
-    
+
     if self.sample_parse_buffer then
         --local obj_sample_histo = torch.zeros(2,self.numObjects+1)
-        
+
         local size_take = #self.take_action_index
         local size_g_take = #self.good_take_action_index
         assert(size_g_take > 1 and size_take > 1)
@@ -184,10 +184,11 @@ function trans:fill_buffer()
 end
 
 function trans:report()
-	  print("action table size " .. self.numEntries)
-	  print("general take actions " .. #self.take_action_index)
-      print("good take actions " .. #self.good_take_action_index)
-      print("replay action histogram: {good parse/action samples}\n", self.action_histogram[{ {},{1,25} }])
+    print("action table size " .. self.numEntries)
+    print("general take actions " .. #self.take_action_index)
+    print("good take actions " .. #self.good_take_action_index)
+    --FIXME use verbose here
+    print("replay action histogram: {good parse/action samples}\n", self.action_histogram) --[{ {},{1,30} }])
 end
 
 function trans:sample_one()
@@ -221,7 +222,7 @@ end
 
 function trans:sample(batch_size)
     local batch_size = batch_size or 1
-    assert(batch_size < self.bufferSize)
+    assert(batch_size <= self.bufferSize)
 
     if not self.buf_ind or self.buf_ind + batch_size - 1 > self.bufferSize then
         --print("filling sample buffer")
