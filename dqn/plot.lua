@@ -13,14 +13,14 @@ local a_r_table = {}
 function plotAgent(agent_name,limit,title,object_net_info,refresh)
   local r_table = {}
   addAgentToPlotTable(r_table,agent_name,limit,title,object_net_info,refresh)
-  plotExpFromTable(r_table,"Average Cumulative Reward",nil,nil,nil,nil,nil)
+  plotExpFromTable(r_table,"Average Cumulative Reward")
 end
 
 --directly plot AEN agent from summary t7 file
 function plotAgentFromSummary(agent_summary,limit,title,object_net_info)
   local r_table = {}
   addAgentFromSummary(r_table,agent_summary,limit,title,object_net_info)
-  plotExpFromTable(r_table,"Average Cumulative Reward",nil,nil,nil,nil,nil)
+  plotExpFromTable(r_table,"Average Cumulative Reward")
 end
 
 --use to extract only performance metrics from the agent file
@@ -28,10 +28,10 @@ function summarizeAgent(agent_name,title)
   local agent = torch.load(agent_name..".t7")
   local length = #agent.reward_history
   local DQN_reward = torch.Tensor(agent.reward_history)
+  local AEN_loss ,AEN_acc= torch.zeros(length),torch.zeros(length)
   if  #agent.obj_loss_history < 1 then
     print("AEN records were not found")
-  else 
-    local AEN_loss ,AEN_acc = torch.zeros(length),torch.zeros(length)
+  else
     for i=1,length do
       AEN_loss[i],AEN_acc[i] = agent.obj_loss_history[i][1], agent.obj_loss_history[i][2]
     end
@@ -44,9 +44,9 @@ end
 --use to add multiple agent plots on the same figure
 function addAgentToPlotTable(r_table,agent_name,limit,title,object_net_info, refresh)
   local agent_summary
-  assert(agent_name and "nil agent file provided") 
+  assert(agent_name and "nil agent file provided")
   if not refresh and fs.filep(agent_name.."_result_summary.t7")  then
-    agent_summary = torch.load(agent_name.."_result_summary.t7")    
+    agent_summary = torch.load(agent_name.."_result_summary.t7")
   else
     agent_summary = summarizeAgent(agent_name,title)
   end
@@ -56,26 +56,27 @@ end
 --same as above but only uses summary (usefull when using multiple machines to avoid copying the entire agent)
 function addAgentFromSummary(r_table,agent_summary,limit,title,object_net_info)
   print ("total reward history in file ",agent_summary.length)
+  print (agent_summary)
   limit = math.min(limit or agent_summary.length, agent_summary.length)
   title = title or agent_summary.title
   if agent_summary.loss and object_net_info then
     local AEN_stat_table ={{'Binary Cross Entropy loss', agent_summary.loss:narrow(1,1,limit)},{'Accuracy',agent_summary.acc:narrow(1,1,limit)}}
     --plot seperate graph for object network
-    plotExpFromTable(AEN_stat_table,nil,nil,title or string.gsub(agent_name, "_", " " ) .. " AEN Preformance",nil,nil)
+    plotExpFromTable(AEN_stat_table,'',nil,title or string.gsub(agent_name, "_", " " ) .. " AEN Preformance",nil,nil)
   end
-  
+
   local agent_reward_for_plot = { title , agent_summary.reward:narrow(1,1,limit)}
   table.insert(r_table,agent_reward_for_plot)
 end
 
---used to create figures from the tables 
+--used to create figures from the tables
 function plotExpFromTable(table,ylabel,legend_pos,figure_title,fig_num,png)
   --gif should be a string containing png name
-  if png ~= nil then 
+  if png ~= nil then
     plt.pngfigure(png)
-  else 
+  else
     plt.figure(fig_num)
-  end 
+  end
   if figure_title then plt.title(figure_title) end
   plt.xlabel('Steps 10k')
   plt.ylabel(ylabel)
@@ -84,7 +85,6 @@ function plotExpFromTable(table,ylabel,legend_pos,figure_title,fig_num,png)
   plt.plot(table)
   gnuplot.plotflush()
 end
-
 
 ------legacy------
 --insert agents here
@@ -167,7 +167,7 @@ plt.plot(a_r_table)
 a_r_table = {}
 gnuplot.plotflush()
 ]]
---experiments 
+--experiments
 --limit = 95
 --a_r_table = {}
 --addAgentToPlotTable("zork_scenario_1_merged_Q-arch_conv_q_net_AEN-arch_conv_obj_net_max_2_sample_1_drop_prob_0.9_lr0.0025_14a","2 conv merged lr 0.0025",limit,true)
