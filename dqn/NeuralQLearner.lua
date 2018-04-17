@@ -4,7 +4,9 @@ Copyright (c) 2014 Google Inc.
 See LICENSE file for full terms of limited license.
 ]]
 require 'optim'
+require 'nnutils'
 cons = require 'pl.pretty'
+
 if not dqn then
     require 'initenv'
 end
@@ -143,7 +145,7 @@ function nql:__init(args)
         -- set object network loss for multi lable learning
         --self.objNetLoss = nn.MultiLabelSoftMarginCriterion() --need to remove sigmoid activation from the network
         self.objNetLoss = nn.BCECriterion(torch.FloatTensor(self.n_objects):fill(self.parse_lable_scale))
-        self.optimState = {learningRate = self.obj_lr, learningRateDecay = 0.005}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
+        self.optimState = {learningRate = self.obj_lr, learningRateDecay = 0.0005}--, nesterov = true, momentum = 0.8, dampening = 0} -- for obj network
         self.last_object_net_accuracy = 0
         if self.gpu and self.gpu >= 0 then
             self.obj_network:cuda()
@@ -406,8 +408,6 @@ function nql:objLearnMiniBatch(s,a,a_o,bad_command)
         --print("buffer after setting",self.Y_buff)
         local grad_image = self.Y_buff:ne(0.5):cuda() -- maps which gradients we wish to keep
         --print("grad image",grad_image)
-        --parse_lable_scale < 1 decreases the false positive count and increases the precision
-        --local label_weights = self.Y_buff:eq(1):mul(self.parse_lable_scale) + self.Y_buff:eq(0)
         local h_x = self.obj_network:forward(s):cuda()
         local J = self.objNetLoss:forward(h_x, self.Y_buff)
         --print("@DEBUG loss calculated "..J, "\npredictions = \n","actual labels= \n",h_x,self.Y_buff) -- just for debugging purpose
@@ -652,7 +652,7 @@ function nql:greedy(state,obj_net_prediction)
         --print(best_objects)
     else -- when we dont use the predictions for code simplicity consider all objects
         best_objects = torch.range(1,self.n_objects)
-        -- TODO generalize this per action and associated objects (maybe per object network output dim)
+        -- TODO select all actions with higher than the threshold over AEN predictions instead of a fixed number
     end
 --#########################################
     -- Evaluate all other actions (with random tie-breaking)
