@@ -8,7 +8,7 @@ return function(args)
   local in_hist = 4
   local input_dims_s = {in_hist,in_row_s,in_col}
   local region_hight = {1,2,3} -- hight only of filter, width will be 'in_col'
-  local n_filters = 100 -- number of filters per region size
+  local n_filters = 500 -- number of filters per region size
   local tot_filters_s = table.getn(region_hight)*n_filters
 
 
