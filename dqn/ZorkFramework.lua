@@ -164,7 +164,7 @@ function gameEnv:__init(_opt)
     self._objects = basic_objects
     --default terminal string
     self._terminal_string = "There is no obvious way to open the egg.\0"
-    if scenario > 1 then
+    if scenario > 1 and scenario < 5 then
         -- extend to 20 objects
         self._objects = concatTable(basic_objects,obj_ext1)
         if scenario >= 3 then
@@ -172,13 +172,25 @@ function gameEnv:__init(_opt)
             for i=#self._objects + 1, 200 do
                 table.insert(self._objects,"garbage")
             end
-            if scenario >= 4 then --extended quest actions and intermidiate rewards
+            if scenario == 4 then --extended quest actions and intermidiate rewards
                 self._terminal_string = "Your sword is no longer glowing."
                 --enable exteded quest with none object actions
                 self._actions = concatTable(self._actions,action_ext1)
             end
         end
+
+    elseif scenario >= 5 then
+        assert(0 and "error - not implemented !")
+        self._actions = {
+          --TODO add the minimal actions set to solve the game
+        }
+        self._objects = self._actions
+
+        if scenario == 6  then
+          self._terminal_string = '' --run wild
+        end
     end
+
     --attach object actions
     self._actions = concatTable(self._actions,genObjActionTable(self._objects))
     --print("@DEBUG: action table")
