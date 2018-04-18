@@ -53,7 +53,7 @@ function nql:__init(args)
     else self.agent_tweak  = VANILA --vanilla
         print("vanila algo")
     end
-    assert( self.obj_max+self.obj_sample > 0 or self.agent_tweak == VANILLA or self.agent_tweak == EXPLORE)
+    --assert( self.obj_max+self.obj_sample > 0 or self.agent_tweak == VANILLA or self.agent_tweak == EXPLORE)
 --#########################################
     self.verbose    = args.verbose
     self.best       = args.best
@@ -569,55 +569,55 @@ function nql:eGreedy(state, testing,testing_ep)
     else self.ep = testing_ep end
 --#########################################
     local prediction = nil
-    local hard_prediction
+    local hard_prediction = nil
     local actionIndex, a_o
 
     -- Turn single state into minibatch.  Needed for convolutional nets.
     if state:dim() == 2 then
-	      assert(false, 'Input must be at least 3D')
-        state = state:resize(1, state:size(1), state:size(2))
+	  assert(false, 'Input must be at least 3D')
+      state = state:resize(1, state:size(1), state:size(2))
     end
 
     if self.gpu >= 0 then
-        state = state:cuda()
+      state = state:cuda()
     end
 
     -- Epsilon greedy version which cuts the chance to explore "bad actions" by half
     if self.agent_tweak ~= VANILA and self.last_object_net_accuracy > self.obj_thresh_acc and self.numSteps > self.obj_start then --start using object network insight
-      	--prediction = nn.Sigmoid():forward(self.obj_network:forward(state)):float() --for MLSML criterion
-      	prediction = self.obj_network:forward(state):float():squeeze() --for BCE cretirion network last layer is sigmoid.
+      --prediction = nn.Sigmoid():forward(self.obj_network:forward(state)):float() --for MLSML criterion
+      prediction = self.obj_network:forward(state):float():squeeze() --for BCE cretirion network last layer is sigmoid.
+      -- set self.object_restrict_thresh > 0.5 to consider high confidence predictions - relaxation for under-represented (s,a) pairs
+      hard_prediction = prediction:gt(self.object_restrict_thresh)
     end
 
     if torch.uniform() < self.ep then
-  	    actionIndex = torch.random(1, self.n_actions) --choose at random
+  	  actionIndex = torch.random(1, self.n_actions) --choose at random
 
-          -- prediction is always null for vanila, tweak 2 is only greedy action restriction so we also skip this part
-        if prediction and self.agent_tweak ~= GREEDY then --restricted random action selection, else use standard exploration
-            a_o = self.actions[actionIndex].object or 0	-- extract relevant object
-            if a_o ~= 0 then --only for "take" actions use prediction to validate action
-                repeat
-                    --choose stricktly take action at random - this is to avoid vanishing "take" actions from replay mem
-                    actionIndex = torch.random(self.n_actions - self.n_objects + 1, self.n_actions) -- assume take actions are always last
-                    a_o = self.actions[actionIndex].object -- extract relevant object
-                    --cons.dump(self.actions[actionIndex])
-                    assert(a_o)
-                    -- set self.object_restrict_thresh > 0.5 to consider high confidence predictions - relaxation for under-represented (s,a) pairs
-                    hard_prediction = prediction[a_o] > self.object_restrict_thresh
-                    -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
-                until hard_prediction == false or (hard_prediction == true and torch.uniform() > self.obj_drop_prob)
-                --if prediction[a_o] < 0.5 then print("prediction", prediction[a_o].." for object "..self.objects[a_o] ) end --sanity
-                --if prediction[a_o] > 0.5 then print("pass "..self.objects[a_o],prediction[a_o] ) end
-            end
+      -- prediction is always null for vanila, tweak 2 is only greedy action restriction so we also skip this part
+      if prediction and self.agent_tweak ~= GREEDY then --restricted random action selection, else use standard exploration
+        a_o = self.actions[actionIndex].object or 0	-- extract relevant object
+        if a_o ~= 0 then --only for "take" actions use prediction to validate action
+          repeat
+            --choose stricktly take action at random - this is to avoid vanishing "take" actions from replay mem
+            actionIndex = torch.random(self.n_actions - self.n_objects + 1, self.n_actions) -- assume take actions are always last
+            a_o = self.actions[actionIndex].object -- extract relevant object
+            --cons.dump(self.actions[actionIndex])
+            assert(a_o)
+            -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
+          until hard_prediction[a_o] == false or torch.uniform() > self.obj_drop_prob
+            --if prediction[a_o] < 0.5 then print("prediction", prediction[a_o].." for object "..self.objects[a_o] ) end --sanity
+            --if prediction[a_o] > 0.5 then print("pass "..self.objects[a_o],prediction[a_o] ) end
         end
-        return actionIndex
+      end
+      return actionIndex
     else --use greedy agent policy and pass along the raw prediction for this state
-        return self:greedy(state,prediction)
+        return self:greedy(state,prediction,hard_prediction)
     end
 --#########################################
 end
 
 
-function nql:greedy(state,obj_net_prediction)
+function nql:greedy(state,obj_net_prediction,obj_hard_pred)
     -- Turn single state into minibatch.  Needed for convolutional nets.
 --[[
     if state:dim() == 2 then
@@ -634,26 +634,36 @@ function nql:greedy(state,obj_net_prediction)
     local besta = {1}
 --#########################################
     --greedy action restriction segment
-    local best_objects, soft_object_prediction,sampled_objects
+    local best_objects, soft_object_prediction,sampled_objects = nil,nil,nil
 
     --obj_net_prediction is always null for vanila, skip this part for strictly exploration tweak (no 3)
     if obj_net_prediction and self.agent_tweak ~= EXPLORE then --not nil only if we have started using object net insight
-        -- flip 1 to 0 and 0 to 1 and create probability distribution over the objects
-  	    soft_object_prediction = nn.SoftMax():forward(1 - obj_net_prediction)
-        --try to guess which are the most likely objects we would want to interact with, randomize helps avoiding optimal action starvation
+      if self_obj == -1 then  
+          --allow NQL to select an action from of all actions that are above the threshhold for the given state 
+          best_objects = torch.range(1,self.n_objects)[obj_hard_pred]
+      elseif self.obj_max > 0 then 
+        --best AEN predictions over a fixed size subset of actions
         --sort is in decending order, most likely objects have the highest value
         local sorted_pred,sort_ind = torch.sort(obj_net_prediction,true)
-
         best_objects = sort_ind[{{1,self.obj_max}}]
-        if self.obj_sample > 0 then
-            sampled_objects = torch.multinomial(soft_object_prediction, self.obj_sample)
-            best_objects = best_objects:cat(sampled_objects)
+      end
+
+      if self.obj_sample > 0 then
+        --sample objects with bias to favor likely, this helps avoiding optimal action starvation
+        --flip 1 to 0 and 0 to 1 and create probability distribution over the objects
+        soft_object_prediction = nn.SoftMax():forward(1 - obj_net_prediction)
+        sampled_objects = torch.multinomial(soft_object_prediction, self.obj_sample)
+        if best_objects == nil  then 
+          best_objects = sampled_objects 
+        else
+          best_objects = best_objects:cat(sampled_objects) 
         end
-        --print(best_objects)
-    else -- when we dont use the predictions for code simplicity consider all objects
-        best_objects = torch.range(1,self.n_objects)
-        -- TODO select all actions with higher than the threshold over AEN predictions instead of a fixed number
-    end
+      end
+    end 
+    --default case consider all objects 
+    best_objects = best_objects or torch.range(1,self.n_objects)
+    --print(best_objects)
+    -- TODO select all actions with higher than the threshold over AEN predictions instead of a fixed number
 --#########################################
     -- Evaluate all other actions (with random tie-breaking)
     for a = 2, self.n_actions do
