@@ -18,18 +18,37 @@ obj_start=1                     #number of learning starts until the agent can u
 obj_bad_cmd_thresh=0.6          #when sigmoid output is larger then the threshold consider it as bad prediction
 obj_acc_trust_thresh=0.75       #accuracy threshold for agent to use object net insight
 obj_drop_prob=0.9               #probability to drop actions which Obj net condsiders as bad for explore mod
-if [ $scenario -gt 3 ]; then
+AEN_sample_bias=0.2             #used to increse the number of successful parse samples in AEN buffers
+parse_lable_scale=0.001         #from TF guide: A coefficient to use on the positive labels, value < 1 decreases the false positive count and increases the precision.
+if [ $scenario -gt 4 ]; then
+  parse_lable_scale=0.01
+  AEN_sample_bias=0.05
+  obj_drop_prob=0.75
+  obj_bad_cmd_thresh=0.7
+  obj_sample=0
+  obj_max=0
+  if [ $scenario == 5 ]; then
+    learn_start=200000
+       eps_endt=500000
+          steps=5000000
+
+  elif [ $scenario == 6 ]; then
+    learn_start=200000
+       eps_endt=1000000
+          steps=100000000
+  fi
+elif [ $scenario == 4 ]; then
   obj_sample=5                  #[0,n_objects] how many objects to sample
   obj_max=10                    #[0,n_objects] how many most likely objects to consider with greedy action wp 1
-  steps=5000000
   learn_start=200000
-  eps_endt=500000
+     eps_endt=500000
+        steps=5000000
 elif [ $scenario -gt 1 ]; then
   obj_sample=5                    
   obj_max=5
-  steps=2000000 
   learn_start=100000  
-  eps_endt=500000
+     eps_endt=500000
+        steps=2000000 
 else 
   obj_sample=1                    
   obj_max=2    
@@ -38,8 +57,6 @@ else
   eps_endt=500000
 fi
 bad_parse_penalty_scale=0       #apply penalty multiplier for bad commands
-AEN_sample_bias=0.2             #used to increse the number of successful parse samples in AEN buffers
-parse_lable_scale=0.001         #from TF guide: A coefficient to use on the positive labels, value < 1 decreases the false positive count and increases the precision.
 lr=0.00043                      #DQN learning rate
 obj_lr=0.00043                  #AEN learning rate
 discount=0.8
