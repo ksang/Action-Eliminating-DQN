@@ -98,11 +98,11 @@ while step < opt.steps do
     -- display screen
     -- @DEBUG CO: win = image.display({image=screen, win=win})
 
-    if step % opt.prog_freq == 0 then
+    if step % opt.prog_freq == 0 and opt.verbose > 0 then
+        print("Steps: ", step)
         if opt.verbose > 2 then
             assert(step==agent.numSteps, 'trainer step: ' .. step ..
             ' & agent.numSteps: ' .. agent.numSteps)
-            print("Steps: ", step)
             agent:report()
         end
     end
