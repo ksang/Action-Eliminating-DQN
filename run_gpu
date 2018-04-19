@@ -19,14 +19,13 @@ obj_bad_cmd_thresh=0.6          #when sigmoid output is larger then the threshol
 obj_acc_trust_thresh=0.75       #accuracy threshold for agent to use object net insight
 obj_drop_prob=0.9               #probability to drop actions which Obj net condsiders as bad for explore mod
 AEN_sample_bias=0.2             #used to increse the number of successful parse samples in AEN buffers
-parse_lable_scale=0.001         #from TF guide: A coefficient to use on the positive labels, value < 1 decreases the false positive count and increases the precision.
+parse_lable_scale=0.0001         #from TF guide: A coefficient to use on the positive labels, value < 1 decreases the false positive count and increases the precision.
 if [ $scenario -gt 4 ]; then
-  parse_lable_scale=0.01
   AEN_sample_bias=0.05
   obj_drop_prob=0.75
   obj_bad_cmd_thresh=0.7
-  obj_sample=0
-  obj_max=0
+  obj_sample=10
+  obj_max=20
   if [ $scenario == 5 ]; then
     learn_start=200000
        eps_endt=500000
@@ -34,7 +33,7 @@ if [ $scenario -gt 4 ]; then
 
   elif [ $scenario == 6 ]; then
     learn_start=200000
-       eps_endt=1000000
+       eps_endt=5000000
           steps=100000000
   fi
 elif [ $scenario == 4 ]; then
