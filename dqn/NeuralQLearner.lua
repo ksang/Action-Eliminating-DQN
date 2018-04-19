@@ -38,7 +38,7 @@ function nql:__init(args)
     self.obj_sample = args.obj_sample or 0
     self.obj_max = args.obj_max or #args.game_objects
     assert(self.obj_sample <= self.n_objects and self.obj_sample >= 0)
-    assert(self.obj_max <= self.n_objects and self.obj_max >= 0)
+    assert(self.obj_max <= self.n_objects and self.obj_max >= -1)
     self.parse_lable_scale = args.parse_lable_scale or 1
 
     if args.agent_tweak:match("greedy") then -- tweak option for large action space
@@ -638,9 +638,9 @@ function nql:greedy(state,obj_net_prediction,obj_hard_pred)
 
     --obj_net_prediction is always null for vanila, skip this part for strictly exploration tweak (no 3)
     if obj_net_prediction and self.agent_tweak ~= EXPLORE then --not nil only if we have started using object net insight
-      if self_obj == -1 then  
+      if self.obj_max == -1 then  
           --allow NQL to select an action from of all actions that are above the threshhold for the given state 
-          best_objects = torch.range(1,self.n_objects)[obj_hard_pred]
+          best_objects = torch.range(1,self.n_objects)[1-obj_hard_pred]
       elseif self.obj_max > 0 then 
         --best AEN predictions over a fixed size subset of actions
         --sort is in decending order, most likely objects have the highest value
@@ -656,7 +656,7 @@ function nql:greedy(state,obj_net_prediction,obj_hard_pred)
         if best_objects == nil  then 
           best_objects = sampled_objects 
         else
-          best_objects = best_objects:cat(sampled_objects) 
+          best_objects = best_objects:cat(sampled_objects:float()) 
         end
       end
     end 
