@@ -38,8 +38,9 @@ function nql:__init(args)
     self.obj_sample = args.obj_sample or 0
     self.obj_max = args.obj_max or #args.game_objects
     assert(self.obj_sample <= self.n_objects and self.obj_sample >= 0)
-    assert(self.obj_max <= self.n_objects and self.obj_max >= 0)
+    assert(self.obj_max <= self.n_objects and self.obj_max >= -1)
     self.parse_lable_scale = args.parse_lable_scale or 1
+    self.double_elimination = args.double_elimination
 
     if args.agent_tweak:match("greedy") then -- tweak option for large action space
         self.agent_tweak  = GREEDY
@@ -287,7 +288,22 @@ function nql:getQUpdate(args)
     end
     --print(s2:size())
     -- Compute max_a Q(s_2, a).
-    q2_max = target_q_net:forward(s2):float():max(2)
+    q2_max = target_q_net:forward(s2):float()
+    if self.agent_tweak ~= VANILA and self.double_elimination then
+      local elimination_mask = nil
+      local AEN_prediction = self.obj_network:forward(s2)
+      local AEN_hard_prediction = AEN_prediction:ge(self.object_restrict_thresh):byte()
+      if self.n_actions~=self.n_objects then
+        elimination_mask = torch.ByteTensor((#s2)[1],self.n_actions-self.n_objects):fill(0) --non-AEN actions are always vavlid set signal to 0
+        elimination_mask = elimination_mask:cat(AEN_hard_prediction) --we always assume AEn actions are in the higher index range after
+      else
+        elimination_mask = AEN_hard_prediction
+      end
+      q2_max[elimination_mask] = -1/0 -- this is a hack to mask invalid actions from the max op by using -inf
+      --print(elimination_mask)
+    end
+    q2_max = q2_max:float():max(2)
+    --print(q2_max)
 
     -- Compute q2 = (1-terminal) * gamma * max_a Q(s2, a)
     q2 = q2_max:clone():mul(self.discount):cmul(term)
@@ -638,10 +654,10 @@ function nql:greedy(state,obj_net_prediction,obj_hard_pred)
 
     --obj_net_prediction is always null for vanila, skip this part for strictly exploration tweak (no 3)
     if obj_net_prediction and self.agent_tweak ~= EXPLORE then --not nil only if we have started using object net insight
-      if self_obj == -1 then  
-          --allow NQL to select an action from of all actions that are above the threshhold for the given state 
+      if self_obj == -1 then
+          --allow NQL to select an action from of all actions that are above the threshhold for the given state
           best_objects = torch.range(1,self.n_objects)[obj_hard_pred]
-      elseif self.obj_max > 0 then 
+      elseif self.obj_max > 0 then
         --best AEN predictions over a fixed size subset of actions
         --sort is in decending order, most likely objects have the highest value
         local sorted_pred,sort_ind = torch.sort(obj_net_prediction,true)
@@ -653,14 +669,14 @@ function nql:greedy(state,obj_net_prediction,obj_hard_pred)
         --flip 1 to 0 and 0 to 1 and create probability distribution over the objects
         soft_object_prediction = nn.SoftMax():forward(1 - obj_net_prediction)
         sampled_objects = torch.multinomial(soft_object_prediction, self.obj_sample)
-        if best_objects == nil  then 
-          best_objects = sampled_objects 
+        if best_objects == nil  then
+          best_objects = sampled_objects
         else
-          best_objects = best_objects:cat(sampled_objects) 
+          best_objects = best_objects:cat(sampled_objects)
         end
       end
-    end 
-    --default case consider all objects 
+    end
+    --default case consider all objects
     best_objects = best_objects or torch.range(1,self.n_objects)
     --print(best_objects)
     -- TODO select all actions with higher than the threshold over AEN predictions instead of a fixed number
