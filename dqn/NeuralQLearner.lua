@@ -654,10 +654,10 @@ function nql:greedy(state,obj_net_prediction,obj_hard_pred)
 
     --obj_net_prediction is always null for vanila, skip this part for strictly exploration tweak (no 3)
     if obj_net_prediction and self.agent_tweak ~= EXPLORE then --not nil only if we have started using object net insight
-      if self_obj == -1 then
+      if self.obj_max == -1 then
           --allow NQL to select an action from of all actions that are above the threshhold for the given state
-          best_objects = torch.range(1,self.n_objects)[obj_hard_pred]
-      elseif self.obj_max > 0 then
+          best_objects = torch.range(1,self.n_objects)[1-obj_hard_pred]
+      elseif self.obj_max > 0 then 
         --best AEN predictions over a fixed size subset of actions
         --sort is in decending order, most likely objects have the highest value
         local sorted_pred,sort_ind = torch.sort(obj_net_prediction,true)
