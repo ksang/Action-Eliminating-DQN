@@ -8,7 +8,7 @@ return function(args)
   local in_hist = 4
   local input_dims_s = {in_hist,in_row_s,in_col}
   local region_hight = {1,2,3} -- hight only of filter, width will be 'in_col'
-  local n_filters = 5  -- number of filters per region size
+  local n_filters = 20  -- number of filters per region size
   local tot_filters_s = table.getn(region_hight)*n_filters
 
 
@@ -20,6 +20,7 @@ return function(args)
     local net = nn.Sequential()
     net:add(nn.SpatialConvolution(4,n_filters,in_col,region_hight[i]))
     net:add(nn.ReLU())
+    net:add(nn.SpatialDropout(0.5))
     net:add(nn.SpatialMaxPooling(1,in_row_s-region_hight[i]+1))
     net_concat:add(net)
   end

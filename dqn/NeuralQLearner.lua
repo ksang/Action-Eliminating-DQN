@@ -289,7 +289,7 @@ function nql:getQUpdate(args)
     --print(s2:size())
     -- Compute max_a Q(s_2, a).
     q2_max = target_q_net:forward(s2):float()
-    if self.agent_tweak ~= VANILA and self.double_elimination then
+    if self.agent_tweak ~= VANILA and self.double_elimination == 1 then
       local elimination_mask = nil
       local AEN_prediction = self.obj_network:forward(s2)
       local AEN_hard_prediction = AEN_prediction:ge(self.object_restrict_thresh):byte()
@@ -551,9 +551,11 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     --Do some Q-learning updates
     if self.numSteps > self.learn_start and not testing and
         self.numSteps % self.update_freq == 0 then
+        self.obj_network:training()
         for i = 1, self.n_replay do
             self:qLearnMinibatch()
         end
+        self.obj_network:evaluate()
     end
 
     if not testing then
@@ -657,7 +659,7 @@ function nql:greedy(state,obj_net_prediction,obj_hard_pred)
       if self.obj_max == -1 then
           --allow NQL to select an action from of all actions that are above the threshhold for the given state
           best_objects = torch.range(1,self.n_objects)[1-obj_hard_pred]
-      elseif self.obj_max > 0 then 
+      elseif self.obj_max > 0 then
         --best AEN predictions over a fixed size subset of actions
         --sort is in decending order, most likely objects have the highest value
         local sorted_pred,sort_ind = torch.sort(obj_net_prediction,true)
