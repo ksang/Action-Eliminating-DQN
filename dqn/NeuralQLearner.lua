@@ -379,7 +379,9 @@ function nql:qLearnMinibatch()
 --#########################################
     -- now train obj network
     if self.agent_tweak ~= VANILA then
+      self.obj_network:training()
       self:objLearnMiniBatch(s_for_obj,a_for_obj,a_o, bad_command)
+      self.obj_network:evaluate()
     end
 --#########################################
 end
@@ -551,11 +553,9 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     --Do some Q-learning updates
     if self.numSteps > self.learn_start and not testing and
         self.numSteps % self.update_freq == 0 then
-        self.obj_network:training()
         for i = 1, self.n_replay do
             self:qLearnMinibatch()
         end
-        self.obj_network:evaluate()
     end
 
     if not testing then
