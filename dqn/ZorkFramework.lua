@@ -196,6 +196,7 @@ function gameEnv:__init(_opt)
             self._actions = concatTable(self._actions,action_ext1)
           end
         end
+      end
       --attach object actions
       self._actions = concatTable(self._actions,genObjActionTable(self._objects))
     else --scenarios 5-6 use external action file (no bloat actions)
