@@ -59,7 +59,7 @@ function trans:__init(args)
     self.s = torch.ByteTensor(self.maxSize, self.stateDim):fill(0)
     self.a = torch.ShortTensor(self.maxSize):fill(0)
     self.a_o = torch.ShortTensor(self.maxSize):fill(0)
-    self.bad_command  = torch.ShortTensor(self.maxSize):fill(0)
+    self.bad_command  = torch.ByteTensor(self.maxSize):fill(0)
     self.r = torch.zeros(self.maxSize)
     self.t = torch.ByteTensor(self.maxSize):fill(0)
     self.action_encodings = torch.eye(self.numActions)
@@ -95,6 +95,9 @@ function trans:__init(args)
     end
 end
 
+function trans:getObjIndexTable()
+  return self.take_action_index,self.good_take_action_index
+end
 
 function trans:reset()
     self.numEntries = 0
@@ -148,9 +151,9 @@ function trans:fill_buffer()
                     --sample any take action
                     index = self.take_action_index[torch.random(#self.take_action_index)]
                 end
-            until index - self.recentMemSize > 2 and index < self.numEntries - self.recentMemSize-- for state concatination
+            until self:isActionIndexSafeToGet(index)-- for state concatination
 
-            s, a, r, s2 ,t, a_o, bad_command = self:get(index -self.recentMemSize +1) -- sample from the transition table
+            s, a, r, s2 ,t, a_o, bad_command = self:getByActionIndex(index) -- sample from the transition table
             --print ("total object action sampled",#self.take_action_index)
             assert(a_o ~= 0) --here we should not have none object action
 
@@ -251,6 +254,7 @@ end
 
 
 function trans:concatFrames(index, use_recent)
+    local s,t
     if use_recent then
         s, t = self.recent_s, self.recent_t
     else
@@ -349,10 +353,17 @@ function trans:get_recent()
     return self:concatFrames(1, true):float():div(255)
 end
 
+function trans:isActionIndexSafeToGet(action_ind)
+  return action_ind > self.recentMemSize -1 and action_ind < self.numEntries
+end
+function trans:getByActionIndex(action_index)
+  return self:get(action_index-self.recentMemSize+1)
+end
+
 function trans:get(index)
     local s = self:concatFrames(index)
     local s2 = self:concatFrames(index+1)
-    local ar_index = index+self.recentMemSize-1  --why?!??!?!?
+    local ar_index = index+self.recentMemSize-1
 
     return s, self.a[ar_index], self.r[ar_index], s2, self.t[ar_index+1], self.a_o[ar_index], self.bad_command[ar_index]
 end
