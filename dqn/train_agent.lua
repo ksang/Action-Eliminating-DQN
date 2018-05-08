@@ -48,6 +48,8 @@ cmd:text()
 
 local opt = cmd:parse(arg)
 --- General setup.
+EVAL_STEPS = opt.eval_steps
+
 local game_env, game_actions, agent, opt = setup(opt)
 
 -- override print to always flush the output
@@ -121,7 +123,11 @@ while step < opt.steps do
         local eval_time = sys.clock()
         local eval_bad_command = 0
         local eval_tot_obj_actions = 0
+        eval_step=0
+        agent.val_conf_buf:zero()
+
         for estep=1,opt.eval_steps do
+            eval_step=eval_step+1
             local action_index,a_o = agent:perceive(reward, screen, terminal, true, 0.05) -- a_o : object for action assume only 1 for now
             -- Play game in test mode (episodes don't end when losing a life)
             screen, reward, terminal,new_state_string,bad_command = game_env:step(game_actions[action_index])
@@ -145,7 +151,7 @@ while step < opt.steps do
                 screen, reward, terminal = game_env:nextRandomGame()
             end
         end
-
+      print(agent.val_conf_buf)
       eval_time = sys.clock() - eval_time
       start_time = start_time + eval_time
 	    local ind = #reward_history+1

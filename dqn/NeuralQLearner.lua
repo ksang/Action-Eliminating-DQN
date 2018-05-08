@@ -40,8 +40,17 @@ function nql:__init(args)
     assert(self.obj_sample <= self.n_objects and self.obj_sample >= 0)
     assert(self.obj_max <= self.n_objects and self.obj_max >= -1)
     self.parse_lable_scale = args.parse_lable_scale or 1
-    self.double_elimination = args.double_elimination
+    self.double_elimination = args.double_elimination or 0
     self.AEN_n_filters = args.AEN_n_filters or 20
+    self.shallow_exploration_flag = args.shallow_exploration_flag or 0
+    self.shallow_elimination_flag = args.shallow_elimination_flag or 0
+    if self.shallow_elimination_flag ==1 then
+      self.beta       = args.elimination_beta or 10
+      self.n_features = self.AEN_n_filters*3
+      self.elimination_freq = args.elimination_freq or 50000
+      --self.A = torch.CudaTensor(self.n_objects,self.n_features,self.n_features)
+      self.val_conf_buf = torch.CudaTensor(3,EVAL_STEPS)
+    end
 
     if args.agent_tweak:match("greedy") then -- tweak option for large action space
         self.agent_tweak  = GREEDY
@@ -238,6 +247,9 @@ function nql:__init(args)
     self.tmp= self.dw:clone():fill(0)
     self.g  = self.dw:clone():fill(0)
     self.g2 = self.dw:clone():fill(0)
+    if self.shallow_elimination_flag==1 then
+      self.obj_target_network    =  self.obj_network:clone()
+    end
 
     if self.target_q then
         self.target_network = self.network:clone()
@@ -298,9 +310,20 @@ function nql:getQUpdate(args)
     local q2 = target_q_net:forward(s2):float()
     local q2_max-- = torch.FloatTensor((#q2)[1])
     if self.agent_tweak ~= VANILA and self.double_elimination == 1 and self.numSteps >= self.obj_start then
+      --output is a batch_sizeXn_objects needs to turn to batch_sizeXn_actions via elimination mask
+      local AEN_prediction =torch.CudaTensor((#q2)[1],self.n_objects)--(#q2)[1],(#q2)[2]):zero()
+      --local AEN_hard_prediction =torch.CudaTensor(AEN_prediction)
 
-      local AEN_prediction = self.obj_network:forward(s2):float()
+      if self.shallow_elimination_flag == 1 then
+        for i=1,(#s2)[1] do --for each sample in batch
+          local pred,conf = nil,nil
+          pred,conf = self:shallow_elimination(s2[i])
+          AEN_prediction[i]=pred-conf
+        end
 
+      else
+        AEN_prediction = self.obj_network:forward(s2):float()
+      end
 
       local AEN_hard_prediction = AEN_prediction:ge(self.object_restrict_thresh):byte()
 
@@ -311,7 +334,6 @@ function nql:getQUpdate(args)
       else
         elimination_mask = AEN_hard_prediction
       end
-
       q2[elimination_mask]=-1/0
     end
     q2_max = q2:max(2)
@@ -566,7 +588,10 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
             self:qLearnMinibatch()
           end
         end
-
+        if self.shallow_elimination_flag == 1 and (self.numSteps == self.obj_start or
+             self.numSteps > self.obj_start and self.numSteps % self.elimination_freq == 0) then
+          self:elimination_update()
+        end
       end
 
       self.numSteps = self.numSteps + 1
@@ -614,7 +639,12 @@ function nql:eGreedy(state, testing,testing_ep)
     -- Epsilon greedy version which cuts the chance to explore "bad actions" by half
     if self.agent_tweak ~= VANILA and self.last_object_net_accuracy > self.obj_thresh_acc and self.numSteps > self.obj_start then --start using object network insight
     --if self.agent_tweak ~= VANILA and  self.numSteps > self.obj_start then --start using object network insight
+      if self.shallow_elimination_flag == 1 and self.numSteps>self.elimination_freq and self.obj_target_network then
+          --return 2 tensors: AE target net work prediction and confidence
+          prediction,uncertainty_bias = self:shallow_elimination(state,testing)
 
+          prediction = prediction-uncertainty_bias
+      else
         --prediction = nn.Sigmoid():forward(self.obj_network:forward(state)):float() --for MLSML criterion
         prediction = self.obj_network:forward(state):float():squeeze() --for BCE cretirion network last layer is sigmoid.
         -- set self.object_restrict_thresh > 0.5 to consider high confidence predictions - relaxation for under-represented (s,a) pairs
@@ -761,4 +791,82 @@ function nql:report()
     print(get_weight_norms(self.obj_network))
     print(get_grad_norms(self.obj_network))
   end
+end
+
+
+
+
+
+
+----- adaptive elimination, Tom&Nadav, 22/4 ------------------------------------
+
+function nql:elimination_update()
+  print('performing elimination_update')
+  -- to do : get last layer number
+  -- create target network for f
+  -- next: eliminate based on phi^t theta +- sqrt(phi^tA^-1phi) > thresh
+  local start_t = sys.clock()sys.clock()
+  -- initialization
+  local n_features = self.n_features
+  local n_actions  = self.n_objects
+  local lambda = 5
+  self.obj_target_network    =  self.obj_network:clone()
+  self.obj_target_network:evaluate()
+  local PHI = torch.CudaTensor(n_actions,n_features):zero()
+  local THETA = torch.CudaTensor(n_actions,n_features):zero()
+
+  local A_Mat = torch.CudaTensor(self.n_objects,self.n_features,self.n_features)
+  A_Mat:copy(torch.eye(n_features):mul(lambda):reshape(1,n_features,n_features):expand(n_actions,n_features,n_features))
+  local replay_obj_index_table ,_=  self.transitions:getObjIndexTable()
+
+  local i = 0
+  while i < #replay_obj_index_table  do
+    i=i+1
+    local replay_ind = replay_obj_index_table[i]
+    if self.transitions:isActionIndexSafeToGet(replay_ind) then
+      local s, _, _,_, _,a_o,e = self.transitions:getByActionIndex(replay_ind)
+        s = s:float():div(255):resize(1, unpack(self.input_dims)):cuda()
+        self.obj_target_network:forward(s)
+        phi = (self.obj_target_network.modules[3].output:transpose(1,2):clone())
+        PHI[a_o]:add(phi:mul(e))
+        A_Mat[a_o]:add(torch.mm(phi, phi:transpose(1,2)))
+      end
+
+  end
+  local A_Mat2 = torch.FloatTensor(self.n_objects,self.n_features,self.n_features)
+  A_Mat2:copy(A_Mat)
+  for i = 1, n_actions do
+    A_Mat2[i]:copy(torch.inverse(A_Mat2[i]))
+  end
+  self.A:copy(A_Mat2)
+
+  for i = 1, n_actions do
+    THETA[i]:copy(torch.mv(self.A[i],PHI[i]))
+  end
+  self.obj_target_network.modules[4].weight:copy(THETA:transpose(1,2))
+  self.A:copy(A_Mat2)
+
+  if self.verbose > 1 then print ("shallow update took: " .. sys.clock()-start_t) end
+end
+
+
+function nql:shallow_elimination(state,testing)
+  --local start_t = sys.clock()
+  local prediction = self.obj_target_network:forward(state):select(1,1)
+  --p=prediction:clone()
+  local phi = self.obj_target_network.modules[3].output:transpose(1,2)
+  --local start_t = sys.clock()
+  phi = phi:reshape(1,(#phi)[1],1):expand(self.n_objects,(#phi)[1],1):cuda()
+  local conf = torch.sqrt(torch.abs(self.beta*torch.bmm(phi:transpose(2,3),torch.bmm(self.A,phi))))
+  if testing and self.verbose > 1 then
+    --print ("predictions:\n",(prediction:squeeze():cat(conf:squeeze(),2):transpose(1,2)))
+    self.val_conf_buf[1][eval_step]=(prediction:squeeze():gt(0.6):sum()/self.n_objects) -- avg AEN eliminations
+    self.val_conf_buf[2][eval_step]=(torch.add(prediction:squeeze(),-conf:squeeze()):gt(0.6):sum()/self.n_objects) -- avg hard eliminations with confidence
+    self.val_conf_buf[3][eval_step]=(conf:squeeze():div(self.n_objects):sum()) --avg confidence?
+    --print ("conf_sum:\n",(conf_sum))
+    --print ("pred_sum:\n",(pred_sum))
+    --print ("final_pred_sum:\n",(final_pred_sum))
+  end
+  --print('batch mul time:',sys.clock() - start_t)
+  return prediction:squeeze(), conf:squeeze()-- self.sigmoid:forward(conf):mul(0.5):squeeze()
 end
