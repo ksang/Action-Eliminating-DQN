@@ -8,9 +8,9 @@ return function(args)
   local in_hist = 4
   local input_dims_s = {in_hist,in_row_s,in_col}
   local region_hight = {1,2,3} -- hight only of filter, width will be 'in_col'
-  local n_filters = 20  -- number of filters per region size
-  local tot_filters_s = table.getn(region_hight)*n_filters
 
+  local n_filters = args.AEN_n_filters --or 20-- number of filters per region size
+  local tot_filters_s = table.getn(region_hight)*n_filters
 
   local output_size = args.n_objects
   local net_s = nn.Sequential()
@@ -26,7 +26,7 @@ return function(args)
   end
   net_s:add(net_concat)
   net_s:add(nn.Reshape(tot_filters_s))
-  net_s:add(nn.Linear(tot_filters_s,output_size))
+  net_s:add(nn.Linear(tot_filters_s,output_size,false))
   net_s:add(nn.Sigmoid())
 
   print("AEN:\n", net_s)

@@ -30,7 +30,7 @@ function nql:__init(args)
     self.obj_drop_prob = args.obj_drop_prob or 0.5
     self.obj_thresh_acc = args.obj_thresh or 0
     self.obj_network = args.obj_net_file or 'conv_obj_net'
-    self.obj_start = args.obj_start*args.learn_start or args.learn_start or 0
+    self.obj_start = args.obj_start or args.learn_start or 0
     self.obj_lr = args.obj_lr or 0.0001
     self.AEN_sample_bias = args.AEN_sample_bias or 0
     assert(self.obj_start >= 1)
@@ -41,6 +41,7 @@ function nql:__init(args)
     assert(self.obj_max <= self.n_objects and self.obj_max >= -1)
     self.parse_lable_scale = args.parse_lable_scale or 1
     self.double_elimination = args.double_elimination
+    self.AEN_n_filters = args.AEN_n_filters or 20
 
     if args.agent_tweak:match("greedy") then -- tweak option for large action space
         self.agent_tweak  = GREEDY
@@ -55,6 +56,8 @@ function nql:__init(args)
         print("vanila algo")
     end
     --assert( self.obj_max+self.obj_sample > 0 or self.agent_tweak == VANILLA or self.agent_tweak == EXPLORE)
+    self.sigmoid = nn.Sigmoid()
+    self.softmax = nn.SoftMax()
 --#########################################
     self.verbose    = args.verbose
     self.best       = args.best
@@ -153,7 +156,11 @@ function nql:__init(args)
             self.Y_buff:cuda()
             self.valid_Y_buff:cuda()
             self.objNetLoss:cuda()
+            self.sigmoid:cuda()
+            self.softmax:cuda()
             cudnn.convert(self.obj_network,cudnn)
+            cudnn.convert(self.softmax,cudnn)
+            cudnn.convert(self.sigmoid,cudnn)
         else
             self.obj_network:float()
         end
@@ -288,32 +295,36 @@ function nql:getQUpdate(args)
     end
     --print(s2:size())
     -- Compute max_a Q(s_2, a).
-    q2_max = target_q_net:forward(s2):float()
-    if self.agent_tweak ~= VANILA and self.double_elimination == 1 then
-      local elimination_mask = nil
-      local AEN_prediction = self.obj_network:forward(s2)
+    local q2 = target_q_net:forward(s2):float()
+    local q2_max-- = torch.FloatTensor((#q2)[1])
+    if self.agent_tweak ~= VANILA and self.double_elimination == 1 and self.numSteps >= self.obj_start then
+
+      local AEN_prediction = self.obj_network:forward(s2):float()
+
+
       local AEN_hard_prediction = AEN_prediction:ge(self.object_restrict_thresh):byte()
+
+      local elimination_mask = nil
       if self.n_actions~=self.n_objects then
-        elimination_mask = torch.ByteTensor((#s2)[1],self.n_actions-self.n_objects):fill(0) --non-AEN actions are always vavlid set signal to 0
-        elimination_mask = elimination_mask:cat(AEN_hard_prediction) --we always assume AEn actions are in the higher index range after
+        elimination_mask = torch.ByteTensor((#s2)[1],self.n_actions-self.n_objects):zero() --non-AEN actions are always vavlid set signal to 0
+        elimination_mask = elimination_mask:cat(AEN_hard_prediction) --we always assume AEN actions have the higher index range
       else
         elimination_mask = AEN_hard_prediction
       end
-      q2_max[elimination_mask] = -1/0 -- this is a hack to mask invalid actions from the max op by using -inf
-      --print(elimination_mask)
+
+      q2[elimination_mask]=-1/0
     end
-    q2_max = q2_max:float():max(2)
-    --print(q2_max)
+    q2_max = q2:max(2)
 
     -- Compute q2 = (1-terminal) * gamma * max_a Q(s2, a)
-    q2 = q2_max:clone():mul(self.discount):cmul(term)
+    local q2_gamma = q2_max:clone():mul(self.discount):cmul(term)
 
-    delta = r:clone():float()
+    local delta = r:clone():float()
 
     if self.rescale_r then
         delta:div(self.r_max)
     end
-    delta:add(q2)
+    delta:add(q2_gamma)
 
     -- q = Q(s,a)
     local q_all = self.network:forward(s):float()
@@ -427,7 +438,7 @@ function nql:objLearnMiniBatch(s,a,a_o,bad_command)
         local grad_image = self.Y_buff:ne(0.5):cuda() -- maps which gradients we wish to keep
         --print("grad image",grad_image)
         local h_x = self.obj_network:forward(s):cuda()
-        local J = self.objNetLoss:forward(h_x, self.Y_buff)
+        local J = self.objNetLoss:forward(h_x, self.Y_buff)/self.parse_lable_scale
         --print("@DEBUG loss calculated "..J, "\npredictions = \n","actual labels= \n",h_x,self.Y_buff) -- just for debugging purpose
 	    --zero out none informative gradients
 	    local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda())
@@ -456,6 +467,7 @@ function nql:sample_validation_data()
     self.valid_bad_command = bad_command:clone()
     local bad_parse_samples = bad_command:sum()
     self.transitions:report()
+
     print("validation sample contains:\ntotal bad parse " .. bad_parse_samples .. " and " .. self.valid_size -  bad_parse_samples.. " succesfull parse")
 --#########################################
 end
@@ -473,7 +485,9 @@ function nql:compute_validation_statistics()
       --print(self.valid_Y_buff)
       local h_x = self.obj_network:forward(self.valid_s_for_obj)
       local J = self.objNetLoss:forward(h_x, self.valid_Y_buff)
-      local h_y = 1 - h_x:le(0.5) -- calculate prediction
+      local h_y = h_x:gt(self.object_restrict_thresh) -- calculate prediction
+      print("average actions elimination: " , h_y:sum(2):mean() )
+      --local p,of =  shallow_elimination TODO test how well shallow elimination is doing
       local sum = 0
       local false_neg = 0
       for i=1,self.valid_size do
@@ -515,14 +529,8 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     end
 
     self.transitions:add_recent_state(state, terminal)
-    --print("@DEBUG: rawstate:\n",rawstate)
-    --for i,j in pairs(self.transitions) do
-    --  print("@DEBUG:",i,j)
-    --end
-    --print("@DEBUG: NQL self transitions",self.transitions)
 
     local currentFullState = self.transitions:get_recent()
-    --print("@DEBUG: currentFullState:\n",currentFullState)
 
     --Store transition s, a, r, s',a_o,bad_command from last step
     if self.lastState and not testing then
@@ -551,15 +559,17 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     self.transitions:add_recent_action(actionIndex,a_o)
 
     --Do some Q-learning updates
-    if self.numSteps > self.learn_start and not testing and
-        self.numSteps % self.update_freq == 0 then
-        for i = 1, self.n_replay do
-            self:qLearnMinibatch()
-        end
-    end
-
     if not testing then
-        self.numSteps = self.numSteps + 1
+      if self.numSteps >= self.learn_start then
+        if self.numSteps % self.update_freq == 0 then
+          for i = 1, self.n_replay do
+            self:qLearnMinibatch()
+          end
+        end
+
+      end
+
+      self.numSteps = self.numSteps + 1
     end
 
     self.lastState = state:clone()
@@ -570,6 +580,7 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     if self.target_q and self.numSteps % self.target_q == 1 then
         self.target_network = self.network:clone()
     end
+
 
     if not terminal then
         return actionIndex,a_o
@@ -586,7 +597,7 @@ function nql:eGreedy(state, testing,testing_ep)
                 math.max(0, self.numSteps - self.learn_start))/self.ep_endt))
     else self.ep = testing_ep end
 --#########################################
-    local prediction = nil
+    local prediction,uncertainty_bias = nil,nil
     local hard_prediction = nil
     local actionIndex, a_o
 
@@ -602,31 +613,38 @@ function nql:eGreedy(state, testing,testing_ep)
 
     -- Epsilon greedy version which cuts the chance to explore "bad actions" by half
     if self.agent_tweak ~= VANILA and self.last_object_net_accuracy > self.obj_thresh_acc and self.numSteps > self.obj_start then --start using object network insight
-      --prediction = nn.Sigmoid():forward(self.obj_network:forward(state)):float() --for MLSML criterion
-      prediction = self.obj_network:forward(state):float():squeeze() --for BCE cretirion network last layer is sigmoid.
-      -- set self.object_restrict_thresh > 0.5 to consider high confidence predictions - relaxation for under-represented (s,a) pairs
+    --if self.agent_tweak ~= VANILA and  self.numSteps > self.obj_start then --start using object network insight
+
+        --prediction = nn.Sigmoid():forward(self.obj_network:forward(state)):float() --for MLSML criterion
+        prediction = self.obj_network:forward(state):float():squeeze() --for BCE cretirion network last layer is sigmoid.
+        -- set self.object_restrict_thresh > 0.5 to consider high confidence predictions - relaxation for under-represented (s,a) pairs
+      end
       hard_prediction = prediction:gt(self.object_restrict_thresh)
     end
 
     if torch.uniform() < self.ep then
   	  actionIndex = torch.random(1, self.n_actions) --choose at random
-
       -- prediction is always null for vanila, tweak 2 is only greedy action restriction so we also skip this part
       if prediction and self.agent_tweak ~= GREEDY then --restricted random action selection, else use standard exploration
         a_o = self.actions[actionIndex].object or 0	-- extract relevant object
         if a_o ~= 0 then --only for "take" actions use prediction to validate action
-          repeat
-            --choose stricktly take action at random - this is to avoid vanishing "take" actions from replay mem
-            actionIndex = torch.random(self.n_actions - self.n_objects + 1, self.n_actions) -- assume take actions are always last
-            a_o = self.actions[actionIndex].object -- extract relevant object
-            --cons.dump(self.actions[actionIndex])
-            assert(a_o)
-            -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
-          until hard_prediction[a_o] == false or torch.uniform() > self.obj_drop_prob
-            --if prediction[a_o] < 0.5 then print("prediction", prediction[a_o].." for object "..self.objects[a_o] ) end --sanity
-            --if prediction[a_o] > 0.5 then print("pass "..self.objects[a_o],prediction[a_o] ) end
+          if uncertainty_bias and self.shallow_exploration_flag == 1 then --shallow elimination exploration scheme aims at improving AEN confidence
+            actionIndex = torch.multinomial(self.softmax:forward(uncertainty_bias:gt((1-self.object_restrict_thresh)/2):float():cuda()),1):squeeze() + self.n_actions - self.n_objects
+          else --naive exploration - will only follow AEN prediction
+            repeat
+              --choose stricktly take action at random - this is to avoid vanishing "take" actions from replay mem
+              actionIndex = torch.random(self.n_actions - self.n_objects + 1, self.n_actions) -- assume take actions are always last
+              a_o = self.actions[actionIndex].object -- extract relevant object
+              --cons.dump(self.actions[actionIndex])
+              assert(a_o)
+              -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
+            until hard_prediction[a_o] == false or torch.uniform() > self.obj_drop_prob
+              --if prediction[a_o] < 0.5 then print("prediction", prediction[a_o].." for object "..self.objects[a_o] ) end --sanity
+              --if prediction[a_o] > 0.5 then print("pass "..self.objects[a_o],prediction[a_o] ) end
+          end
         end
       end
+
       return actionIndex
     else --use greedy agent policy and pass along the raw prediction for this state
         return self:greedy(state,prediction,hard_prediction)
@@ -634,19 +652,7 @@ function nql:eGreedy(state, testing,testing_ep)
 --#########################################
 end
 
-
 function nql:greedy(state,obj_net_prediction,obj_hard_pred)
-    -- Turn single state into minibatch.  Needed for convolutional nets.
---[[
-    if state:dim() == 2 then
-        assert(false, 'Input must be at least 3D')
-        state = state:resize(1, state:size(1), state:size(2))
-    end
-
-    if self.gpu >= 0 then
-        state = state:cuda()
-    end
-]]
     local q = self.network:forward(state):float():squeeze()
     local maxq = q[1]
     local besta = {1}
@@ -669,7 +675,7 @@ function nql:greedy(state,obj_net_prediction,obj_hard_pred)
       if self.obj_sample > 0 then
         --sample objects with bias to favor likely, this helps avoiding optimal action starvation
         --flip 1 to 0 and 0 to 1 and create probability distribution over the objects
-        soft_object_prediction = nn.SoftMax():forward(1 - obj_net_prediction)
+        soft_object_prediction = self.softmax:forward(1 - obj_net_prediction)
         sampled_objects = torch.multinomial(soft_object_prediction, self.obj_sample)
         if best_objects == nil  then
           best_objects = sampled_objects
@@ -749,9 +755,10 @@ end
 
 
 function nql:report()
-    print(get_weight_norms(self.network))
-    print(get_grad_norms(self.network))
+  print(get_weight_norms(self.network))
+  print(get_grad_norms(self.network))
+  if self.agent_tweak ~= VANILA then
     print(get_weight_norms(self.obj_network))
     print(get_grad_norms(self.obj_network))
-
+  end
 end

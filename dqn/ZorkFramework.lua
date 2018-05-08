@@ -196,6 +196,7 @@ function gameEnv:__init(_opt)
             self._actions = concatTable(self._actions,action_ext1)
           end
         end
+      end
       --attach object actions
       self._actions = concatTable(self._actions,genObjActionTable(self._objects))
     else --scenarios 5-6 use external action file (no bloat actions)
@@ -272,27 +273,32 @@ function gameEnv:step(action, training)
     result_file_name,bad_command = zork.zorkGameStep(action.action)
   end
 
+  -- read step result string
   local result_string,inventory_text = read_file(result_file_name),read_file(zork.zorkInventory())
+
     --this slows things down a bit but helps to get more information regarding possible
     --movement options
   if bad_command == 0 then
     if result_string:match("You can't go that way.") or
          result_string:match("There is a wall there.") or
          result_string:match("There is no way") or
-         result_string:match("I could't find anything.") then
+         result_string:match("I could't find anything.") or
+         result_string:match("Wasent he a sailor") then
       bad_command = 1
     end
   end
+
   current_score = zork.zorkGetScore()
-  -- double step penalty for bad parse
-  reward = current_score - previous_score + self._step_penalty*(1+bad_command*self.bad_parse_penalty_scale)
-  -- read step result string
-   -- set terminal signal
+  -- step penalty for bad parse and terminal signal
   if training then
     terminal = previous_lives > zork.zorkGetLives() -- every time we lose life
-  else terminal =
-  zork.zorkGetLives() == 0 -- when evaluating agent only when no more lives
+    bad_parse_penalty = -1*bad_command*self.bad_parse_penalty_scale
+  else
+    terminal = zork.zorkGetLives() == 0 -- when evaluating agent only when no more lives
+    bad_parse_penalty = 0
   end
+  reward = current_score - previous_score + self._step_penalty + bad_parse_penalty
+
 
   -- check for goal state if defined
   if self._terminal_string and result_string:match(self._terminal_string) then
@@ -330,8 +336,9 @@ function gameEnv:step(action, training)
     end)
   -- early termination
   if zork.zorkGetNumMoves() > self._step_limit - 1 then
-  terminal = true
+    terminal = true
   end
+
 --[[
     if terminal then print("terminated after",zork.zorkGetNumMoves(),"steps")
        print("total new games started",self.tot_inits,"total steps", self.tot_steps)
