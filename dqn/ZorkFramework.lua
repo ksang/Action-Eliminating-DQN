@@ -172,13 +172,16 @@ function gameEnv:__init(_opt)
     --define some default parameters for all scenarios that may be overwritten
     self._step_penalty = -1
     self._step_limit = 100
+    self.goal_reward = 100
     self._actions = basic_actions
     self._objects = basic_objects
     if scenario < 5 then
       if scenario < 4 then
         --this should encorage the agent to take the egg before openning it
-        self.goal_reward=0
-        self._terminal_string = "There is no obvious way to open the egg.\0"
+        --self.goal_reward=0
+        --self._terminal_string = "There is no obvious way to open the egg.\0"
+        self._terminal_string=nil --reward/terminal signal given when taking the egg
+        self.terminate_on_inventory = true
       else -- scenario 4
         self._terminal_string = "Your sword is no longer glowing."
       end
@@ -248,7 +251,7 @@ function gameEnv:newGame()
   ]]
 
   if self.scenario < 4 then
-    self._inventory_rewards['egg']=100
+    self._inventory_rewards['egg']=self.goal_reward
   end
 
   s,r,t =  self:getState()
@@ -327,6 +330,7 @@ function gameEnv:step(action, training)
     function(k,v)
       if inventory_text:match(k) then
         reward = reward + v
+        if self.terminate_on_inventory then terminal=true end
         self._inventory_rewards[k]=0
         if not training and v>0 then
           print("@DEBUG: intermidiate goal state: " .. k
