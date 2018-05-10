@@ -33,7 +33,7 @@ function summarizeAgent(agent_name,title)
     print("AEN records were not found")
   else
     for i=1,length do
-      AEN_loss[i],AEN_acc[i] = agent.obj_loss_history[i][1], agent.obj_loss_history[i][2]
+      AEN_loss[i],AEN_acc[i] = agent.obj_loss_history[i]['AEN_loss'], agent.obj_loss_history[i]['AEN_single_accuracy']
     end
   end
   local agent_summary = {reward = DQN_reward,loss = AEN_loss,acc = AEN_acc,length = length, title = title or string.gsub(agent_name, "_", " " ),arguments = agent.arguments}
