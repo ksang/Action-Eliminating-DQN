@@ -109,7 +109,7 @@ while step < opt.steps do
         end
     end
 
-    if step%10000 == 0 then collectgarbage() end
+    if step%5000 == 0 then collectgarbage() end
 
     if step % opt.eval_freq == 0 and step > learn_start then
 
@@ -124,7 +124,7 @@ while step < opt.steps do
         local eval_bad_command = 0
         local eval_tot_obj_actions = 0
         eval_step=0
-        agent.val_conf_buf:zero()
+        if agent.shallow_elimination_flag == 1 then agent.val_conf_buf:zero() end
 
         for estep=1,opt.eval_steps do
             eval_step=eval_step+1
@@ -151,11 +151,22 @@ while step < opt.steps do
                 screen, reward, terminal = game_env:nextRandomGame()
             end
         end
-      print(agent.val_conf_buf)
+        if step > agent.obj_start and agent.shallow_elimination_flag == 1 then
+            --local buff = agent.val_conf_buf
+            local buff = torch.FloatTensor(3,4):zero()
+            buff[{{},1 }],buff[{{},2 }],buff[{{},3 }],buff[{{},4 }] = agent.val_conf_buf:mean(2):float():squeeze(),
+              agent.val_conf_buf:std(2):float():squeeze(),agent.val_conf_buf:min(2):float():squeeze()
+              ,agent.val_conf_buf:max(2):float():squeeze()
+            print('avg,std,min,max')
+            print(buff)
+            --print('std',agent.val_conf_buf:std(2))
+            --print('min',agent.val_conf_buf:min(2),'max',agent.val_conf_buf:max(2))
+        end
+
       eval_time = sys.clock() - eval_time
       start_time = start_time + eval_time
-	    local ind = #reward_history+1
-	    obj_loss_history[ind] = agent:compute_validation_statistics() -- update loss for obj network
+	  local ind = #reward_history+1
+	  obj_loss_history[ind] = agent:compute_validation_statistics() -- update loss for obj network
       total_reward = total_reward/math.max(1, nepisodes)
 
       if #reward_history == 0 or total_reward > torch.Tensor(reward_history):max() then
@@ -193,10 +204,10 @@ while step < opt.steps do
             agent.valid_s2, agent.valid_term, agent.valid_a_o,agent.valid_bad_command
         agent.valid_s, agent.valid_a, agent.valid_r, agent.valid_s2,
             agent.valid_term,agent.valid_a_o,agent.valid_bad_command = nil, nil, nil, nil, nil, nil, nil
-        local w, dw, g, g2, delta, delta2, deltas, tmp = agent.w, agent.dw,
-            agent.g, agent.g2, agent.delta, agent.delta2, agent.deltas, agent.tmp
+        local w, dw, g, g2, delta, delta2, deltas, tmp, obj_w, obj_dw = agent.w, agent.dw,
+            agent.g, agent.g2, agent.delta, agent.delta2, agent.deltas, agent.tmp,agent.obj_w,agent.obj_dw
         agent.w, agent.dw, agent.g, agent.g2, agent.delta, agent.delta2,
-            agent.deltas, agent.tmp = nil, nil, nil, nil, nil, nil, nil, nil
+            agent.deltas, agent.tmp, agent.obj_w,agent.obj_dw= nil, nil, nil, nil, nil, nil, nil, nil, nil, nil
 
         local filename = opt.name
         if opt.save_versions > 0 then
@@ -205,6 +216,7 @@ while step < opt.steps do
         filename = filename  .. "_lr" .. agent.lr .."_" ..agent.n_actions.."a"
         torch.save(filename ..".t7", {agent = agent,
                                       model = agent.network,
+                                      model_AEN = agent.obj_network,
                                       best_model = agent.best_network,
                                       reward_history = reward_history,
       	                              obj_loss_history = obj_loss_history,
@@ -222,7 +234,7 @@ while step < opt.steps do
         agent.valid_s, agent.valid_a, agent.valid_r, agent.valid_s2, agent.valid_term,
             agent.valid_a_o,agent.valid_bad_command = s, a, r, s2, term, a_o,bad_command
         agent.w, agent.dw, agent.g, agent.g2, agent.delta, agent.delta2,
-            agent.deltas, agent.tmp = w, dw, g, g2, delta, delta2, deltas, tmp
+            agent.deltas, agent.tmp ,agent.obj_w,agent.obj_dw= w, dw, g, g2, delta, delta2, deltas, tmp,obj_w,obj_dw
         print('Saved:', filename .. '.t7')
         io.flush()
         collectgarbage()

@@ -20,14 +20,15 @@ prog_freq=10000
 save_freq=100000
 update_freq=100
 n_replay=4
+obj_start=1
 #operation modes
 bad_parse_penalty_scale=0      #apply penalty multiplier for bad commands
 shallow_exploration_flag=0
-shallow_elimination_flag=1
-double_elimination=1            #use AE predictions to mask invalid actions Q value of the target network
+shallow_elimination_flag=0
+double_elimination=0           #use AE predictions to mask invalid actions Q value of the target network
 
 el_beta=1
-let elimination_freq=$eval_freq*50
+let elimination_freq=$eval_freq*20
 
 obj_bad_cmd_thresh=0.6          #when sigmoid output is larger then the threshold consider it as bad prediction
 obj_acc_trust_thresh=0.75       #accuracy threshold for agent to use object net insight
@@ -44,6 +45,7 @@ if [ $scenario -gt 4 ]; then
   obj_bad_cmd_thresh=0.6
   obj_sample=0
   obj_max=-1
+  obj_start=4
   if [ $scenario == 5 ]; then
     learn_start=200000
        eps_endt=500000
@@ -62,11 +64,12 @@ elif [ $scenario == 4 ]; then
      eps_endt=500000
         steps=5000000
 else
+  update_freq=20
   if [ $scenario == 3 ]; then
     obj_sample=2
     obj_max=5
     learn_start=100000
-    eps_endt=500000
+    eps_endt=200000
     steps=2000000
   else
     replay_memory=500000
@@ -77,7 +80,7 @@ else
     eps_endt=200000
   fi
 fi
-let obj_start=$eval_freq*4+$learn_start
+let obj_start=$eval_freq*$obj_start+$learn_start
 eps_end=0.05
 
 
@@ -99,6 +102,8 @@ if [ $agent_tweak != "vanila" ]; then
   agent_name=$agent_name"_AEN-arch_"$obj_net_file
   if [ $shallow_elimination_flag == 1 ]; then
     agent_name=$agent_name"_SE_beta_"$el_beta"_freq_"$elimination_freq
+    obj_max=-1
+    obj_sample=0
     if [ $shallow_exploration_flag == 1 ]; then
     agent_name=$agent_name"_SEExplore"
     fi

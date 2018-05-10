@@ -48,7 +48,7 @@ function nql:__init(args)
       self.beta       = args.elimination_beta or 10
       self.n_features = self.AEN_n_filters*3
       self.elimination_freq = args.elimination_freq or 50000
-      --self.A = torch.CudaTensor(self.n_objects,self.n_features,self.n_features)
+      self.A = torch.CudaTensor(self.n_objects,self.n_features,self.n_features)
       self.val_conf_buf = torch.CudaTensor(3,EVAL_STEPS)
     end
 
@@ -106,7 +106,7 @@ function nql:__init(args)
     self.gpu            = args.gpu
 
     self.ncols          = args.ncols or 1  -- number of color channels in input
-    self.input_dims     = args.input_dims or {self.ncols,args.state_rows, self.hist_len*args.state_cols}
+    self.input_dims     = args.input_dims or {self.hist_len*self.ncols,args.state_rows, args.state_cols}
     self.preproc        = args.preproc  -- name of preprocessing network
     self.histType       = args.histType or "linear"  -- history type to use
     self.histSpacing    = args.histSpacing or 1
@@ -309,18 +309,18 @@ function nql:getQUpdate(args)
     -- Compute max_a Q(s_2, a).
     local q2 = target_q_net:forward(s2):float()
     local q2_max-- = torch.FloatTensor((#q2)[1])
-    if self.agent_tweak ~= VANILA and self.double_elimination == 1 and self.numSteps >= self.obj_start then
+    if self.agent_tweak ~= VANILA and self.double_elimination == 1 and self.numSteps > self.obj_start then
       --output is a batch_sizeXn_objects needs to turn to batch_sizeXn_actions via elimination mask
-      local AEN_prediction =torch.CudaTensor((#q2)[1],self.n_objects)--(#q2)[1],(#q2)[2]):zero()
-      --local AEN_hard_prediction =torch.CudaTensor(AEN_prediction)
-
+      local batch_size = s2:size()[1]
+      local AEN_prediction,uncertainty_bias-- =torch.CudaTensor(batch_size,self.n_objects)
       if self.shallow_elimination_flag == 1 then
-        for i=1,(#s2)[1] do --for each sample in batch
+      --[[  for i=1,batch_size do --for each sample in batch
           local pred,conf = nil,nil
-          pred,conf = self:shallow_elimination(s2[i])
+          pred,conf = self:shallow_elimination(s2[i]:reshape(1,unpack(self.input_dims)))
           AEN_prediction[i]=pred-conf
-        end
-
+        end]]
+        AEN_prediction,uncertainty_bias=self:batchAdaptiveElimination(s2)
+        AEN_prediction:add(-uncertainty_bias)
       else
         AEN_prediction = self.obj_network:forward(s2):float()
       end
@@ -329,7 +329,7 @@ function nql:getQUpdate(args)
 
       local elimination_mask = nil
       if self.n_actions~=self.n_objects then
-        elimination_mask = torch.ByteTensor((#s2)[1],self.n_actions-self.n_objects):zero() --non-AEN actions are always vavlid set signal to 0
+        elimination_mask = torch.ByteTensor(batch_size,self.n_actions-self.n_objects):zero() --non-AEN actions are always vavlid set signal to 0
         elimination_mask = elimination_mask:cat(AEN_hard_prediction) --we always assume AEN actions have the higher index range
       else
         elimination_mask = AEN_hard_prediction
@@ -505,10 +505,22 @@ function nql:compute_validation_statistics()
     if self.agent_tweak ~= VANILA then -- calc object net validation info
       self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
       --print(self.valid_Y_buff)
+      --print(#self.valid_s)
       local h_x = self.obj_network:forward(self.valid_s_for_obj)
-      local J = self.objNetLoss:forward(h_x, self.valid_Y_buff)
+      local J = self.objNetLoss:forward(h_x, self.valid_Y_buff)/self.parse_lable_scale
       local h_y = h_x:gt(self.object_restrict_thresh) -- calculate prediction
-      print("average actions elimination: " , h_y:sum(2):mean() )
+      local aen_mean,aen_std,sp_mean,sp_std = nil,nil,nil,nil
+      if self.numSteps > self.obj_start then 
+        local eliminated = h_y:float():cuda():sum(2)
+        aen_mean,aen_std = eliminated:mean(),eliminated:std()
+        print("actions elimination avg/std: " ,aen_mean,aen_std )
+        if self.shallow_elimination_flag ==1 then 
+            local shallow_pred,uncertainty_bias = self:batchAdaptiveElimination(self.valid_s_for_obj)
+            shallow_pred = (shallow_pred - uncertainty_bias):gt(self.object_restrict_thresh):float():cuda():sum(2)
+            sp_mean,sp_std = shallow_pred:mean(),shallow_pred:std()
+            print('adaptive actions elimination avg/std: ',sp_mean,sp_std)
+        end
+      end
       --local p,of =  shallow_elimination TODO test how well shallow elimination is doing
       local sum = 0
       local false_neg = 0
@@ -528,7 +540,8 @@ function nql:compute_validation_statistics()
       print("obj net reports ".. false_neg .. " false negetives")
       print("object net validation loss", J)
       self.last_object_net_accuracy = single_lable_acc
-      return {J, single_lable_acc}
+      return {AEN_loss=J, AEN_single_accuracy=single_lable_acc,AEN_fn_count=false_neg,
+      eliminated_actions_avg=aen_mean,adaptive_elimination_avg=sp_mean}
     end
 --#########################################
 end
@@ -583,14 +596,14 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
     --Do some Q-learning updates
     if not testing then
       if self.numSteps >= self.learn_start then
+        if self.shallow_elimination_flag == 1 and (self.numSteps == self.obj_start or
+             self.numSteps > self.obj_start and self.numSteps % self.elimination_freq == 0) then
+          self:elimination_update()
+        end
         if self.numSteps % self.update_freq == 0 then
           for i = 1, self.n_replay do
             self:qLearnMinibatch()
           end
-        end
-        if self.shallow_elimination_flag == 1 and (self.numSteps == self.obj_start or
-             self.numSteps > self.obj_start and self.numSteps % self.elimination_freq == 0) then
-          self:elimination_update()
         end
       end
 
@@ -639,14 +652,14 @@ function nql:eGreedy(state, testing,testing_ep)
     -- Epsilon greedy version which cuts the chance to explore "bad actions" by half
     if self.agent_tweak ~= VANILA and self.last_object_net_accuracy > self.obj_thresh_acc and self.numSteps > self.obj_start then --start using object network insight
     --if self.agent_tweak ~= VANILA and  self.numSteps > self.obj_start then --start using object network insight
-      if self.shallow_elimination_flag == 1 and self.numSteps>self.elimination_freq and self.obj_target_network then
+      if self.shallow_elimination_flag == 1 then
           --return 2 tensors: AE target net work prediction and confidence
           prediction,uncertainty_bias = self:shallow_elimination(state,testing)
 
           prediction = prediction-uncertainty_bias
       else
         --prediction = nn.Sigmoid():forward(self.obj_network:forward(state)):float() --for MLSML criterion
-        prediction = self.obj_network:forward(state):float():squeeze() --for BCE cretirion network last layer is sigmoid.
+        prediction = self.obj_network:forward(state):squeeze() --for BCE cretirion network last layer is sigmoid.
         -- set self.object_restrict_thresh > 0.5 to consider high confidence predictions - relaxation for under-represented (s,a) pairs
       end
       hard_prediction = prediction:gt(self.object_restrict_thresh)
@@ -793,10 +806,17 @@ function nql:report()
   end
 end
 
-
-
-
-
+function nql:batchAdaptiveElimination(s)
+  local batch_size,state_size=s:size()[1],s:size()[2]
+  local AEN_prediction,uncertainty_bias =torch.CudaTensor(batch_size,self.n_objects),torch.CudaTensor(batch_size,self.n_objects)
+  for i=1,batch_size do --for each sample in batch
+    local pred,conf = nil,nil
+    pred,conf = self:shallow_elimination(s[i]:reshape(1,unpack(self.input_dims)))
+    AEN_prediction[i]=pred
+    uncertainty_bias[i]=conf
+  end
+  return AEN_prediction,uncertainty_bias
+end
 
 ----- adaptive elimination, Tom&Nadav, 22/4 ------------------------------------
 
@@ -852,20 +872,16 @@ end
 
 function nql:shallow_elimination(state,testing)
   --local start_t = sys.clock()
-  local prediction = self.obj_target_network:forward(state):select(1,1)
+  local prediction = self.obj_target_network:forward(state):squeeze()
   --p=prediction:clone()
   local phi = self.obj_target_network.modules[3].output:transpose(1,2)
   --local start_t = sys.clock()
   phi = phi:reshape(1,(#phi)[1],1):expand(self.n_objects,(#phi)[1],1):cuda()
-  local conf = torch.sqrt(torch.abs(self.beta*torch.bmm(phi:transpose(2,3),torch.bmm(self.A,phi))))
-  if testing and self.verbose > 1 then
-    --print ("predictions:\n",(prediction:squeeze():cat(conf:squeeze(),2):transpose(1,2)))
-    self.val_conf_buf[1][eval_step]=(prediction:squeeze():gt(0.6):sum()/self.n_objects) -- avg AEN eliminations
-    self.val_conf_buf[2][eval_step]=(torch.add(prediction:squeeze(),-conf:squeeze()):gt(0.6):sum()/self.n_objects) -- avg hard eliminations with confidence
-    self.val_conf_buf[3][eval_step]=(conf:squeeze():div(self.n_objects):sum()) --avg confidence?
-    --print ("conf_sum:\n",(conf_sum))
-    --print ("pred_sum:\n",(pred_sum))
-    --print ("final_pred_sum:\n",(final_pred_sum))
+  local conf = torch.sqrt(torch.abs(self.beta*torch.bmm(phi:transpose(2,3),torch.bmm(self.A,phi)))):squeeze()
+  if testing then
+    self.val_conf_buf[1][eval_step]=prediction:gt(self.object_restrict_thresh):sum()--/self.n_objects) -- avg AEN eliminations
+    self.val_conf_buf[2][eval_step]=torch.add(prediction,-conf):gt(self.object_restrict_thresh):sum()--/self.n_objects) -- avg hard eliminations with confidence
+    self.val_conf_buf[3][eval_step]=conf:mean()--:div(self.n_objects):sum()) --avg confidence?
   end
   --print('batch mul time:',sys.clock() - start_t)
   return prediction:squeeze(), conf:squeeze()-- self.sigmoid:forward(conf):mul(0.5):squeeze()
