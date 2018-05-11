@@ -111,6 +111,7 @@ function gameEnv:__init(_opt)
     assert(_opt.env_params.game_scenario)  --just a sanity check
     local scenario = _opt.env_params.game_scenario or 1
     self.scenario = scenario
+
     -- for reward shaping
     self.bad_parse_penalty_scale = _opt.env_params.bad_parse_penalty_scale or 0
     --these extrinsic rewards are set in newGame method and given once per episode based on string matching
@@ -177,11 +178,7 @@ function gameEnv:__init(_opt)
     self._objects = basic_objects
     if scenario < 5 then
       if scenario < 4 then
-        --this should encorage the agent to take the egg before openning it
-        --self.goal_reward=0
-        --self._terminal_string = "There is no obvious way to open the egg.\0"
-        self._terminal_string=nil --reward/terminal signal given when taking the egg
-        self.terminate_on_inventory = true
+        self._terminal_string = "There is no obvious way to open the egg.\0"
       else -- scenario 4
         self._terminal_string = "Your sword is no longer glowing."
       end
@@ -215,6 +212,9 @@ function gameEnv:__init(_opt)
         self._step_penalty = 0
         self._step_limit = 500
         self._terminal_string = nil --run wild
+      elseif scenario == 7 then
+        self.scenario=3.5
+        self._terminal_string = "There is no obvious way to open the egg.\0"
       end
     end
 
@@ -251,7 +251,8 @@ function gameEnv:newGame()
   ]]
 
   if self.scenario < 4 then
-    self._inventory_rewards['egg']=self.goal_reward
+    self._inventory_rewards['egg']=0
+    self.goal_items_collected=0
   end
 
   s,r,t =  self:getState()
@@ -305,14 +306,16 @@ function gameEnv:step(action, training)
 
   -- check for goal state if defined
   if self._terminal_string and result_string:match(self._terminal_string) then
-    terminal = true
-    reward = reward + self.goal_reward -- give additional reward
-    --FIXME use verbose > 2 here
-    if self.scenario > 3 and not training then
-      print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves()
-              .. " steps ####", zork.zorkGetLives())
+    if self.scenario < 4  and self.goal_items_collected == #self._inventory_rewards or self.scenario >= 4 then
+      terminal = true
+      reward = reward + self.goal_reward -- give additional reward
+      --FIXME use verbose > 2 here
+      if self.scenario > 3 and not training then
+        print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves()
+                .. " steps ####", zork.zorkGetLives())
+      end
     end
-  end
+  else
   --check for any of the secondary goal states
   table.foreach(self._additional_rewards,
     function(k,v)
@@ -330,7 +333,7 @@ function gameEnv:step(action, training)
     function(k,v)
       if inventory_text:match(k) then
         reward = reward + v
-        if self.terminate_on_inventory then terminal=true end
+        if self.scenario < 4  then self.goal_items_collected=self.goal_items_collected+1 end
         self._inventory_rewards[k]=0
         if not training and v>0 then
           print("@DEBUG: intermidiate goal state: " .. k
@@ -338,6 +341,7 @@ function gameEnv:step(action, training)
         end
       end
     end)
+  end
   -- early termination
   if zork.zorkGetNumMoves() > self._step_limit - 1 then
     terminal = true

@@ -41,7 +41,7 @@ max_reward=99
 min_reward=-1
 if [ $scenario -gt 4 ]; then
   AEN_sample_bias=0.4
-  obj_drop_prob=0.1
+  obj_drop_prob=0.3
   obj_bad_cmd_thresh=0.6
   obj_sample=0
   obj_max=-1
@@ -80,6 +80,15 @@ else
     learn_start=100000
     eps_endt=200000
   fi
+fi
+if [ $scenario == 7 ]; then
+  cp dqn/1200_sorted_actions.txt dqn/action_strings.txt
+  update_freq=20
+  obj_sample=2
+  obj_max=5
+  learn_start=100000
+  eps_endt=300000
+  steps=2000000
 fi
 let obj_start=$eval_freq*$obj_start+$learn_start
 eps_end=0.05
