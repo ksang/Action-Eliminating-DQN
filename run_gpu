@@ -46,6 +46,7 @@ if [ $scenario -gt 4 ]; then
   obj_sample=0
   obj_max=-1
   obj_start=4
+  cp dqn/1200_sorted_actions.txt dqn/action_strings.txt
   if [ $scenario == 5 ]; then
     learn_start=200000
        eps_endt=500000
