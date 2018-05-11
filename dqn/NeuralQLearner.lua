@@ -46,10 +46,10 @@ function nql:__init(args)
     self.shallow_elimination_flag = args.shallow_elimination_flag or 0
     if self.shallow_elimination_flag ==1 then
       self.beta       = args.elimination_beta or 10
-      self.n_features = self.AEN_n_filters*3
+      self.n_features = self.AEN_n_filters*3 + 1 --account for bias
       self.elimination_freq = args.elimination_freq or 50000
       self.A = torch.CudaTensor(self.n_objects,self.n_features,self.n_features)
-      self.val_conf_buf = torch.CudaTensor(3,EVAL_STEPS)
+      self.val_conf_buf = torch.CudaTensor(4,EVAL_STEPS)
     end
 
     if args.agent_tweak:match("greedy") then -- tweak option for large action space
@@ -488,7 +488,7 @@ function nql:sample_validation_data()
     self.valid_a_o = a_o:clone()
     self.valid_bad_command = bad_command:clone()
     local bad_parse_samples = bad_command:sum()
-    self.transitions:report()
+    self.transitions:report(1)
 
     print("validation sample contains:\ntotal bad parse " .. bad_parse_samples .. " and " .. self.valid_size -  bad_parse_samples.. " succesfull parse")
 --#########################################
@@ -501,7 +501,7 @@ function nql:compute_validation_statistics()
     self.v_avg = self.q_max * q2_max:mean()
     self.tderr_avg = delta:clone():abs():mean()
 --#########################################
-    self.transitions:report()
+    self.transitions:report(self.verbose)
     if self.agent_tweak ~= VANILA then -- calc object net validation info
       self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
       --print(self.valid_Y_buff)
@@ -574,7 +574,13 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
                              self.lastTerminal, self.lastAction_o or 0, self.lastAction_bad)
     end
 
-    if (self.numSteps == self.learn_start+1 or self.numSteps == self.replay_memory) and not testing then
+    if not testing and ( 
+          self.numSteps == self.learn_start or (
+            self.numSteps%(self.replay_memory/4) == 0 and 
+            self.numSteps <= self.replay_memory and 
+            self.numSteps > self.learn_start
+          ) 
+        ) then
         --sample validation data twice, initially when learning starts and again when we fill the entire replay memory
 	      self:sample_validation_data()
     end
@@ -831,6 +837,10 @@ function nql:elimination_update()
   local n_actions  = self.n_objects
   local lambda = 5
   self.obj_target_network    =  self.obj_network:clone()
+  --assume AEN last layer has an activation function
+  --we use the linear features of the last layer
+  self.obj_target_network:remove(self.obj_target_network:size()) 
+  local no_activation_network_size = self.obj_target_network:size() 
   self.obj_target_network:evaluate()
   local PHI = torch.CudaTensor(n_actions,n_features):zero()
   local THETA = torch.CudaTensor(n_actions,n_features):zero()
@@ -845,9 +855,10 @@ function nql:elimination_update()
     local replay_ind = replay_obj_index_table[i]
     if self.transitions:isActionIndexSafeToGet(replay_ind) then
       local s, _, _,_, _,a_o,e = self.transitions:getByActionIndex(replay_ind)
+        assert(a_o ~= 0,"should only see here AEN actions!")
         s = s:float():div(255):resize(1, unpack(self.input_dims)):cuda()
         self.obj_target_network:forward(s)
-        phi = (self.obj_target_network.modules[3].output:transpose(1,2):clone())
+        phi = (self.obj_target_network.modules[no_activation_network_size-1].output:transpose(1,2):clone())
         PHI[a_o]:add(phi:mul(e))
         A_Mat[a_o]:add(torch.mm(phi, phi:transpose(1,2)))
       end
@@ -863,7 +874,7 @@ function nql:elimination_update()
   for i = 1, n_actions do
     THETA[i]:copy(torch.mv(self.A[i],PHI[i]))
   end
-  self.obj_target_network.modules[4].weight:copy(THETA:transpose(1,2))
+  self.obj_target_network.modules[no_activation_network_size].weight:copy(THETA:transpose(1,2))
   self.A:copy(A_Mat2)
 
   if self.verbose > 1 then print ("shallow update took: " .. sys.clock()-start_t) end
@@ -882,7 +893,8 @@ function nql:shallow_elimination(state,testing)
     self.val_conf_buf[1][eval_step]=prediction:gt(self.object_restrict_thresh):sum()--/self.n_objects) -- avg AEN eliminations
     self.val_conf_buf[2][eval_step]=torch.add(prediction,-conf):gt(self.object_restrict_thresh):sum()--/self.n_objects) -- avg hard eliminations with confidence
     self.val_conf_buf[3][eval_step]=conf:mean()--:div(self.n_objects):sum()) --avg confidence?
+    self.val_conf_buf[4][eval_step]=conf:std()
   end
   --print('batch mul time:',sys.clock() - start_t)
-  return prediction:squeeze(), conf:squeeze()-- self.sigmoid:forward(conf):mul(0.5):squeeze()
+  return prediction, conf-- self.sigmoid:forward(conf):mul(0.5):squeeze()
 end

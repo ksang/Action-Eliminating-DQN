@@ -186,12 +186,13 @@ function trans:fill_buffer()
     end
 end
 
-function trans:report()
+function trans:report(verbose)
     print("action table size " .. self.numEntries)
     print("general take actions " .. #self.take_action_index)
     print("good take actions " .. #self.good_take_action_index)
-    --FIXME use verbose here
-    print("replay action histogram: {good parse/action samples}\n", self.action_histogram) --[{ {},{1,30} }])
+    if verbose > 1 then
+      print("replay action histogram: {good parse/action samples}\n", self.action_histogram) --[{ {},{1,30} }])
+    end
 end
 
 function trans:sample_one()
