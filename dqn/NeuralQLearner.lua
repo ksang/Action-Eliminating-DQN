@@ -46,7 +46,7 @@ function nql:__init(args)
     self.shallow_elimination_flag = args.shallow_elimination_flag or 0
     if self.shallow_elimination_flag ==1 then
       self.beta       = args.elimination_beta or 10
-      self.n_features = self.AEN_n_filters*3 + 1 --account for bias
+      self.n_features = self.AEN_n_filters*3 --account for bias
       self.elimination_freq = args.elimination_freq or 50000
       self.A = torch.CudaTensor(self.n_objects,self.n_features,self.n_features)
       self.val_conf_buf = torch.CudaTensor(4,EVAL_STEPS)

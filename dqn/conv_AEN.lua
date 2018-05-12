@@ -26,7 +26,7 @@ return function(args)
   end
   net_s:add(net_concat)
   net_s:add(nn.Reshape(tot_filters_s))
-  net_s:add(nn.Linear(tot_filters_s,output_size))
+  net_s:add(nn.Linear(tot_filters_s,output_size,false))
   net_s:add(nn.Sigmoid())
 
   print("AEN:\n", net_s)
