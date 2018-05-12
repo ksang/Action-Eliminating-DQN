@@ -152,7 +152,6 @@ plt.plot(a_r_table)
 
 
 --double step penalty Troll quest
---[[
 a_r_table = {}
 limit = 990
 addAgentToPlotTable("DQN3_0_1_zork_FC_vanila_scenario_4_step_-2_lr1.7e-06_215a","Vanilla 1.7e-6",limit,false)
