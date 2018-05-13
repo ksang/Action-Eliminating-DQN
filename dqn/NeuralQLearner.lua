@@ -54,6 +54,9 @@ function nql:__init(args)
       self.A_init:copy(torch.eye(self.n_features):mul(self.lambda):reshape(1,self.n_features,self.n_features):expand(self.n_objects,self.n_features,self.n_features))
       self.val_conf_buf = torch.CudaTensor(4,EVAL_STEPS)
     end
+    
+    self.objects_range=torch.range(1,self.n_objects):cudaInt()
+    self.actions_range=torch.range(1,self.n_actions):cudaInt()
 
     if args.agent_tweak:match("greedy") then -- tweak option for large action space
         self.agent_tweak  = GREEDY
@@ -68,8 +71,8 @@ function nql:__init(args)
         print("vanila algo")
     end
     --assert( self.obj_max+self.obj_sample > 0 or self.agent_tweak == VANILLA or self.agent_tweak == EXPLORE)
-    self.sigmoid = nn.Sigmoid()
-    self.softmax = nn.SoftMax()
+    self.sigmoid = cudnn.Sigmoid():cuda()
+    self.softmax = cudnn.SoftMax():cuda()
 --#########################################
     self.verbose    = args.verbose
     self.best       = args.best
@@ -171,8 +174,6 @@ function nql:__init(args)
             self.sigmoid:cuda()
             self.softmax:cuda()
             cudnn.convert(self.obj_network,cudnn)
-            cudnn.convert(self.softmax,cudnn)
-            cudnn.convert(self.sigmoid,cudnn)
         else
             self.obj_network:float()
         end
@@ -683,8 +684,9 @@ function nql:eGreedy(state, testing,testing_ep)
       if prediction and self.agent_tweak ~= GREEDY then --restricted random action selection, else use standard exploration
         a_o = self.actions[actionIndex].object or 0	-- extract relevant object
         if a_o ~= 0 then --only for "take" actions use prediction to validate action
-          if uncertainty_bias and self.shallow_exploration_flag == 1 then --shallow elimination exploration scheme aims at improving AEN confidence
-            actionIndex = torch.multinomial(self.softmax:forward(uncertainty_bias:gt((1-self.object_restrict_thresh)/2):float():cuda()),1):squeeze() + self.n_actions - self.n_objects
+          if uncertainty_bias and self.shallow_exploration_flag == 1 then 
+            --shallow elimination exploration scheme aims at improving AEN confidence
+            actionIndex = torch.multinomial(self.softmax:forward(uncertainty_bias:gt(self.object_restrict_thresh/2):cudaByte():cuda()),1):squeeze() + self.n_actions - self.n_objects
           else --naive exploration - will only follow AEN prediction
             repeat
               --choose stricktly take action at random - this is to avoid vanishing "take" actions from replay mem
@@ -694,8 +696,6 @@ function nql:eGreedy(state, testing,testing_ep)
               assert(a_o)
               -- coin flip will determin if actions with positive hard prediction get through and returned to the agent
             until hard_prediction[a_o] == false or torch.uniform() > self.obj_drop_prob
-              --if prediction[a_o] < 0.5 then print("prediction", prediction[a_o].." for object "..self.objects[a_o] ) end --sanity
-              --if prediction[a_o] > 0.5 then print("pass "..self.objects[a_o],prediction[a_o] ) end
           end
         end
       end
@@ -708,9 +708,7 @@ function nql:eGreedy(state, testing,testing_ep)
 end
 
 function nql:greedy(state,obj_net_prediction,obj_hard_pred)
-    local q = self.network:forward(state):float():squeeze()
-    local maxq = q[1]
-    local besta = {1}
+    local q = self.network:forward(state):squeeze()
 --#########################################
     --greedy action restriction segment
     local best_objects, soft_object_prediction,sampled_objects = nil,nil,nil
@@ -719,12 +717,13 @@ function nql:greedy(state,obj_net_prediction,obj_hard_pred)
     if obj_net_prediction and self.agent_tweak ~= EXPLORE then --not nil only if we have started using object net insight
       if self.obj_max == -1 then
           --allow NQL to select an action from of all actions that are above the threshhold for the given state
-          best_objects = torch.range(1,self.n_objects)[1-obj_hard_pred]
+          best_objects = self.objects_range[1-obj_hard_pred]
       elseif self.obj_max > 0 then
         --best AEN predictions over a fixed size subset of actions
-        --sort is in decending order, most likely objects have the highest value
-        local sorted_pred,sort_ind = torch.sort(obj_net_prediction,true)
-        best_objects = sort_ind[{{1,self.obj_max}}]
+        --most likely objects have the lowest values
+        local _,sort_ind = obj_net_prediction:topk(self.obj_max)
+        --best_objects = sort_ind[{{1,self.obj_max}}]
+        best_objects=sort_ind
       end
 
       if self.obj_sample > 0 then
@@ -739,26 +738,21 @@ function nql:greedy(state,obj_net_prediction,obj_hard_pred)
         end
       end
     end
-    --default case consider all objects
-    best_objects = best_objects or torch.range(1,self.n_objects)
-    --print(best_objects)
-    -- TODO select all actions with higher than the threshold over AEN predictions instead of a fixed number
---#########################################
-    -- Evaluate all other actions (with random tie-breaking)
-    for a = 2, self.n_actions do
-        --extract the current action object index
-        local a_o = self.actions[a].object or 0
-        --[[only consider non object or best_objects for the max operation assuming only 1 action interacts with objects
-        (this needs to be expanded to more then one object network and categorized by action type)]]
-        if a_o == 0 or best_objects:eq(a_o):sum() > 0 then
-            if q[a] > maxq then
-                besta = { a }
-                maxq = q[a]
-            elseif q[a] == maxq then
-                besta[#besta+1] = a
-            end
+
+    if best_objects then
+        local elimination_mask = torch.ByteTensor(self.n_actions):fill(1)
+        for i = 1,best_objects:size()[1] do
+            elimination_mask[best_objects[i]]=0
         end
+        if self.n_actions~= self.n_objects then
+            elimination_mask[{{1,self.n_actions-self.n_objects}}]=0
+        end
+        q[elimination_mask:cudaByte()]=-1/0
     end
+    
+    besta=self.actions_range[q:eq(q:max())]:totable()
+    maxq=q[besta[1]]
+  --#########################################
     self.bestq = maxq
 
     local r = torch.random(1, #besta)
@@ -865,9 +859,9 @@ function nql:elimination_update()
         assert(a_o ~= 0,"should only see here AEN actions!")
         s = s:cuda():div(255):resize(1, unpack(self.input_dims))
         self.obj_target_network:forward(s)
-        phi = (self.obj_target_network.modules[no_activation_network_size-1].output:transpose(1,2))
+        local phi= (self.obj_target_network.modules[no_activation_network_size-1].output)--:transpose(1,2))
         --PHI[a_o]:add(phi:mul(e))
-        self.A[a_o]:add(torch.mm(phi, phi:transpose(1,2)))
+        self.A[a_o]:add(torch.mm(phi:transpose(1,2),phi))--,phi:transpose(1,2)))
       end
 
   end
