@@ -38,7 +38,22 @@ sudo apt-get install -qqy liblua5.1-0-dev
 sudo apt-get install -qqy libgd-dev
 sudo apt-get update
 
-
+#rewrite if neded, this is needed due to broken torch.inverse with cuda tensors
+export CUDADIR=/usr/local/cuda
+export PATH=$PATH:/usr/local/cuda/bin # for NVCC
+#assuming openblas is used, folow magma install guid otherwise 
+export OPENBLASDIR=/opt/OpenBLAS
+wget 'http://icl.utk.edu/projectsfiles/magma/downloads/magma-2.3.0.tar.gz'
+tar -xvsf magma-2.3.0.tar.gz
+cd magma-2.3.0
+cp make.inc-examples/make.inc.openblas make.inc
+make
+sudo mkdir -p /opt/magma
+sudo mkdir -p /usr/local/magma
+USER_=`whoami`
+sudo chown $USER_ /usr/local/magma
+make install
+sudo chown root /usr/local/magma
 echo "==> Torch7's dependencies have been installed"
 
 
