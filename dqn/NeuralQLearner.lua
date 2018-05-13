@@ -45,10 +45,13 @@ function nql:__init(args)
     self.shallow_exploration_flag = args.shallow_exploration_flag or 0
     self.shallow_elimination_flag = args.shallow_elimination_flag or 0
     if self.shallow_elimination_flag ==1 then
+      self.lambda = args.lambda or 0.1
       self.beta       = args.elimination_beta or 10
       self.n_features = self.AEN_n_filters*3 --account for bias
       self.elimination_freq = args.elimination_freq or 50000
       self.A = torch.CudaTensor(self.n_objects,self.n_features,self.n_features)
+      self.A_init = torch.CudaTensor(self.n_objects,self.n_features,self.n_features)
+      self.A_init:copy(torch.eye(self.n_features):mul(self.lambda):reshape(1,self.n_features,self.n_features):expand(self.n_objects,self.n_features,self.n_features))
       self.val_conf_buf = torch.CudaTensor(4,EVAL_STEPS)
     end
 
@@ -487,6 +490,7 @@ function nql:sample_validation_data()
     self.valid_a_for_obj = a_for_obj:clone()
     self.valid_a_o = a_o:clone()
     self.valid_bad_command = bad_command:clone()
+    self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
     local bad_parse_samples = bad_command:sum()
     self.transitions:report(1)
 
@@ -503,7 +507,6 @@ function nql:compute_validation_statistics()
 --#########################################
     self.transitions:report(self.verbose)
     if self.agent_tweak ~= VANILA then -- calc object net validation info
-      self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
       --print(self.valid_Y_buff)
       --print(#self.valid_s)
       local h_x = self.obj_network:forward(self.valid_s_for_obj)
@@ -514,10 +517,13 @@ function nql:compute_validation_statistics()
         local eliminated = h_y:float():cuda():sum(2)
         aen_mean,aen_std = eliminated:mean(),eliminated:std()
         print("actions elimination avg/std: " ,aen_mean,aen_std )
-        if self.shallow_elimination_flag ==1 then 
+        if self.shallow_elimination_flag == 1 then 
             local shallow_pred,uncertainty_bias = self:batchAdaptiveElimination(self.valid_s_for_obj)
-            shallow_pred = (shallow_pred - uncertainty_bias):gt(self.object_restrict_thresh):float():cuda():sum(2)
-            sp_mean,sp_std = shallow_pred:mean(),shallow_pred:std()
+            shallow_pred = (shallow_pred - uncertainty_bias):gt(self.object_restrict_thresh):cuda()
+            local fn_count = (shallow_pred -self.valid_Y_buff):eq(1):sum()
+            local shallow_pred_sum=shallow_pred:float():sum(2)
+            sp_mean,sp_std = shallow_pred_sum:mean(),shallow_pred_sum:std()
+            print('adaptive elimination false neg count: ',fn_count)
             print('adaptive actions elimination avg/std: ',sp_mean,sp_std)
         end
       end
@@ -813,7 +819,7 @@ function nql:report()
 end
 
 function nql:batchAdaptiveElimination(s)
-  local batch_size,state_size=s:size()[1],s:size()[2]
+  local batch_size=s:size()[1]
   local AEN_prediction,uncertainty_bias =torch.CudaTensor(batch_size,self.n_objects),torch.CudaTensor(batch_size,self.n_objects)
   for i=1,batch_size do --for each sample in batch
     local pred,conf = nil,nil
@@ -833,20 +839,21 @@ function nql:elimination_update()
   -- next: eliminate based on phi^t theta +- sqrt(phi^tA^-1phi) > thresh
   local start_t = sys.clock()sys.clock()
   -- initialization
-  local n_features = self.n_features
-  local n_actions  = self.n_objects
-  local lambda = 5
+  --local n_features = self.n_features
+  --local n_actions  = self.n_objects
+  --local lambda = 0.1
   self.obj_target_network    =  self.obj_network:clone()
   --assume AEN last layer has an activation function
   --we use the linear features of the last layer
   self.obj_target_network:remove(self.obj_target_network:size()) 
   local no_activation_network_size = self.obj_target_network:size() 
   self.obj_target_network:evaluate()
-  local PHI = torch.CudaTensor(n_actions,n_features):zero()
-  local THETA = torch.CudaTensor(n_actions,n_features):zero()
+  --local PHI = torch.CudaTensor(n_actions,n_features):zero()
+  --local THETA = torch.CudaTensor(n_actions,n_features):zero()
 
-  local A_Mat = torch.CudaTensor(self.n_objects,self.n_features,self.n_features)
-  A_Mat:copy(torch.eye(n_features):mul(lambda):reshape(1,n_features,n_features):expand(n_actions,n_features,n_features))
+  --local A_Mat = torch.CudaTensor(self.n_objects,self.n_features,self.n_features)
+  --A_Mat:copy(torch.eye(n_features):mul(lambda):reshape(1,n_features,n_features):expand(n_actions,n_features,n_features))
+  self.A:copy(self.A_init)
   local replay_obj_index_table ,_=  self.transitions:getObjIndexTable()
 
   local i = 0
@@ -856,27 +863,29 @@ function nql:elimination_update()
     if self.transitions:isActionIndexSafeToGet(replay_ind) then
       local s, _, _,_, _,a_o,e = self.transitions:getByActionIndex(replay_ind)
         assert(a_o ~= 0,"should only see here AEN actions!")
-        s = s:float():div(255):resize(1, unpack(self.input_dims)):cuda()
+        s = s:cuda():div(255):resize(1, unpack(self.input_dims))
         self.obj_target_network:forward(s)
-        phi = (self.obj_target_network.modules[no_activation_network_size-1].output:transpose(1,2):clone())
-        PHI[a_o]:add(phi:mul(e))
-        A_Mat[a_o]:add(torch.mm(phi, phi:transpose(1,2)))
+        phi = (self.obj_target_network.modules[no_activation_network_size-1].output:transpose(1,2))
+        --PHI[a_o]:add(phi:mul(e))
+        self.A[a_o]:add(torch.mm(phi, phi:transpose(1,2)))
       end
 
   end
-  local A_Mat2 = torch.FloatTensor(self.n_objects,self.n_features,self.n_features)
-  A_Mat2:copy(A_Mat)
-  for i = 1, n_actions do
-    A_Mat2[i]:copy(torch.inverse(A_Mat2[i]))
+  --local A_Mat2 = torch.FloatTensor(self.n_objects,self.n_features,self.n_features)
+  --A_Mat2:copy(A_Mat)
+  --for i = 1, n_actions do
+  --  A_Mat2[i]:copy(torch.inverse(A_Mat2[i]))
+  --end
+  --self.A:copy(A_Mat2)
+  for i = 1, A:size()[1] do
+    self.A[i]:copy(torch.inverse(self.A[i]))
   end
-  self.A:copy(A_Mat2)
-
+--[[
   for i = 1, n_actions do
     THETA[i]:copy(torch.mv(self.A[i],PHI[i]))
   end
-  self.obj_target_network.modules[no_activation_network_size].weight:copy(THETA:transpose(1,2))
-  self.A:copy(A_Mat2)
-
+  ]]
+  --self.obj_target_network.modules[no_activation_network_size].weight:copy(THETA:transpose(1,2))
   if self.verbose > 1 then print ("shallow update took: " .. sys.clock()-start_t) end
 end
 
