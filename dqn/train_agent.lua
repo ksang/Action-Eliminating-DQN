@@ -255,4 +255,6 @@ while step < opt.steps do
         collectgarbage()
     end
   end
-  logfile:close()
+logfile:close()
+require 'plot'
+plotAgentFromSummary(summarizeAgent(filename,nil,agent))

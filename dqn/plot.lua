@@ -24,8 +24,10 @@ function plotAgentFromSummary(agent_summary,limit,title,object_net_info)
 end
 
 --use to extract only performance metrics from the agent file
-function summarizeAgent(agent_name,title)
-  local agent = torch.load(agent_name..".t7")
+function summarizeAgent(agent_name,title,agent)
+  if agent == nil then
+   agent = torch.load(agent_name..".t7")
+  end
   local length = #agent.reward_history
   local DQN_reward = torch.Tensor(agent.reward_history)
   local AEN_loss ,AEN_acc= torch.zeros(length),torch.zeros(length)
