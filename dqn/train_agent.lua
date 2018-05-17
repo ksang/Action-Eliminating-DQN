@@ -79,6 +79,8 @@ local episode_reward
 local screen, reward, terminal = game_env:getState()
 print("Iteration ..", step)
 local win = nil
+
+local logfile=io.open(opt.name .. 'log.txt', 'w')
 while step < opt.steps do
     step = step + 1
     local action_index,a_o = agent:perceive(reward, screen, terminal)
@@ -127,11 +129,25 @@ while step < opt.steps do
         if agent.shallow_elimination_flag == 1 then agent.val_conf_buf:zero() end
 
         for estep=1,opt.eval_steps do
+
             eval_step=eval_step+1
             local action_index,a_o = agent:perceive(reward, screen, terminal, true, 0.05) -- a_o : object for action assume only 1 for now
             -- Play game in test mode (episodes don't end when losing a life)
             screen, reward, terminal,new_state_string,bad_command = game_env:step(game_actions[action_index])
-	          agent.lastAction_bad = bad_command -- update agent feedback on syntax flag for last command
+            episode_reward = episode_reward + reward
+            if step > opt.steps/2 then
+              if  eval_step == 1 then
+                logfile:write('eval sample start after '.. step .. 'steps\n')
+              end
+              if eval_step < 200 then
+                logfile:write(game_actions[action_index] .. '\n')
+                logfile:write(new_state_string .. '\n')
+                if terminal then
+                  logfile:write('end of trace  with reward '..episode_reward..'\n')
+                end
+              end
+            end
+            agent.lastAction_bad = bad_command -- update agent feedback on syntax flag for last command
             if a_o ~= 0 then
               eval_bad_command = eval_bad_command + bad_command
               eval_tot_obj_actions = eval_tot_obj_actions + 1
@@ -139,7 +155,6 @@ while step < opt.steps do
             -- display screen
             -- @DEBUG CO:win = image.display({image=screen, win=win})
             -- record every reward
-            episode_reward = episode_reward + reward
             if reward > 0 then
                nrewards = nrewards + 1
             end
@@ -239,4 +254,5 @@ while step < opt.steps do
         io.flush()
         collectgarbage()
     end
-end
+  end
+  logfile:close()
