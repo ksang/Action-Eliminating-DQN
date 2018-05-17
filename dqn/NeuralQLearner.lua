@@ -487,15 +487,17 @@ function nql:sample_validation_data()
     self.valid_s2   = s2:clone()
     self.valid_term = term:clone()
 --#########################################
-    self.valid_s_for_obj = s_for_obj:clone()
-    self.valid_a_for_obj = a_for_obj:clone()
-    self.valid_a_o = a_o:clone()
-    self.valid_bad_command = bad_command:clone()
-    self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
-    local bad_parse_samples = bad_command:sum()
+    if self.agent_tweak ~= VANILA then
+      self.valid_s_for_obj = s_for_obj:clone()
+      self.valid_a_for_obj = a_for_obj:clone()
+      self.valid_a_o = a_o:clone()
+      self.valid_bad_command = bad_command:clone()
+      self:setYbuff(self.valid_a_o, self.valid_bad_command,true)
+      local bad_parse_samples = bad_command:sum()
+      print("validation sample contains:\ntotal bad parse " .. bad_parse_samples .. " and " .. self.valid_size -  bad_parse_samples.. " succesfull parse")
+    end
     self.transitions:report(1)
 
-    print("validation sample contains:\ntotal bad parse " .. bad_parse_samples .. " and " .. self.valid_size -  bad_parse_samples.. " succesfull parse")
 --#########################################
 end
 
@@ -872,7 +874,7 @@ function nql:elimination_update()
   --end
   --self.A:copy(A_Mat2)
   for i = 1, A:size()[1] do
-    self.A[i]:copy(torch.inverse(self.A[i]))
+    self.A[i]:copy(self.A[i]:inverse())
   end
 --[[
   for i = 1, n_actions do
