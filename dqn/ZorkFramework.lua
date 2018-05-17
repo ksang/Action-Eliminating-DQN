@@ -210,7 +210,7 @@ function gameEnv:__init(_opt)
       elseif scenario == 6  then
         --no step penalty, no goal state
         self._step_penalty = 0
-        self._step_limit = 500
+        self._step_limit = 200
         self._terminal_string = nil --run wild
       elseif scenario == 7 then
         self.scenario=3.5
