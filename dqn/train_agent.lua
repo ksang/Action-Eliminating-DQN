@@ -43,6 +43,7 @@ cmd:option('-verbose', 2,
            'the higher the level, the more information is printed to screen')
 cmd:option('-threads', 1, 'number of BLAS threads')
 cmd:option('-gpu', -1, 'gpu flag')
+cmd:option('eval_sample',100,'length of eval descriptors to save in game log')
 
 cmd:text()
 
@@ -139,8 +140,8 @@ while step < opt.steps do
               if  eval_step == 1 then
                 logfile:write('eval sample start after '.. step .. 'steps\n')
               end
-              if eval_step < 200 then
-                logfile:write(game_actions[action_index] .. '\n')
+              if eval_step < opt.eval_samples then
+                logfile:write(game_actions[action_index].action .. '\n')
                 logfile:write(new_state_string .. '\n')
                 if terminal then
                   logfile:write('end of trace  with reward '..episode_reward..'\n')
