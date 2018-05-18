@@ -43,7 +43,7 @@ cmd:option('-verbose', 2,
            'the higher the level, the more information is printed to screen')
 cmd:option('-threads', 1, 'number of BLAS threads')
 cmd:option('-gpu', -1, 'gpu flag')
-cmd:option('eval_sample',100,'length of eval descriptors to save in game log')
+cmd:option('-eval_samples',3,'number of eval traces of the game to log')
 
 cmd:text()
 
@@ -81,7 +81,7 @@ local screen, reward, terminal = game_env:getState()
 print("Iteration ..", step)
 local win = nil
 
-local logfile=io.open(opt.name .. 'log.txt', 'w')
+local logfile=io.open(opt.name .. '_log.txt', 'w')
 while step < opt.steps do
     step = step + 1
     local action_index,a_o = agent:perceive(reward, screen, terminal)
@@ -136,15 +136,16 @@ while step < opt.steps do
             -- Play game in test mode (episodes don't end when losing a life)
             screen, reward, terminal,new_state_string,bad_command = game_env:step(game_actions[action_index])
             episode_reward = episode_reward + reward
-            if step > opt.steps/2 then
-              if  eval_step == 1 then
-                logfile:write('eval sample start after '.. step .. 'steps\n')
+            if nepisodes <= opt.eval_samples and step >= opt.steps/2 then
+              if estep == 1 then 
+                logfile:write('@@@@ eval sample start after '.. step/opt.eval_freq .. ' learning iterations @@@@\n')
               end
-              if eval_step < opt.eval_samples then
-                logfile:write(game_actions[action_index].action .. '\n')
-                logfile:write(new_state_string .. '\n')
-                if terminal then
-                  logfile:write('end of trace  with reward '..episode_reward..'\n')
+              logfile:write(game_actions[action_index].action .. '\n')
+              logfile:write(new_state_string .. '\n')
+              if terminal then
+                logfile:write('$$$$ end of trace  with reward '..episode_reward..' $$$$\n')
+                if nepisodes == opt.eval_samples then 
+                  logfile:write('#### end of eval period ####\n')
                 end
               end
             end
