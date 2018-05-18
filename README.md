@@ -1,7 +1,7 @@
 The "curse of dimensionality" is one of the main engineering challenges in machine learning due to the exponential cost of exact algorithms. This is typically addressed by generalization and approximation of state or action space. Deep Q-Network (DQN) proposed by Mnih el al. (2015), attempts to overcome the dependency in the size of the state space by learning an approximate value function. However, this scheme does not solve the dependency in the action space size. 
 For instance, agents operating in text domains typically handle very large discrete action space in addition to a large state space. This work suggests leveraging weak prior knowledge to allow the agent to learn to consider only a small subset of actions at each state. Text-based games (TBG) are a natural candidate for testing this hypothesis, thus a new framework was constructed to allow DQN agents to interact with the popular title "Zork I - the great underground Empire".
 Experiments show that a speculative restriction scheme scales well and converges significantly faster when the action space is very large while producing stable policies compared to vanilla DQN agents which attempt to learn over the entire action space.
-Note: The code in this repository is a somewhat crude revision of the original DQN agent, adapted to the domain of TBG. It was used in the experiments for "Learning How Not to Act in Text-based Games": https://openreview.net/forum?id=B1-tVX1Pz
+Note: The code in this repository is a somewhat crude revision of the original DQN agent, adapted to the domain of TBG.
 
 Installation instructions
 -------------------------
