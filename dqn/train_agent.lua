@@ -80,7 +80,7 @@ local episode_reward
 local screen, reward, terminal = game_env:getState()
 print("Iteration ..", step)
 local win = nil
-
+local agent_o, filename
 local logfile=io.open(opt.name .. '_log.txt', 'w')
 while step < opt.steps do
     step = step + 1
@@ -134,15 +134,17 @@ while step < opt.steps do
             eval_step=eval_step+1
             local action_index,a_o = agent:perceive(reward, screen, terminal, true, 0.05) -- a_o : object for action assume only 1 for now
             -- Play game in test mode (episodes don't end when losing a life)
+            local prev_string, prev_inventory = game_env:getCurrentStringState()
             screen, reward, terminal,new_state_string,bad_command = game_env:step(game_actions[action_index])
             episode_reward = episode_reward + reward
             if nepisodes <= opt.eval_samples and step >= opt.steps/2 then
               if estep == 1 then 
-                logfile:write('@@@@ eval sample start after '.. step/opt.eval_freq .. ' learning iterations @@@@\n')
+                logfile:write('@@@@@@@@ eval sample start after '.. (step-agent.learn_start)/opt.eval_freq .. ' learning iterations @@@@@@@@\n')
               end
+              logfile:write(prev_string .. '\n'.. prev_inventory .. '\n')
               logfile:write(game_actions[action_index].action .. '\n')
-              logfile:write(new_state_string .. '\n')
               if terminal then
+                logfile:write(new_state_string .. '\n')
                 logfile:write('$$$$ end of trace  with reward '..episode_reward..' $$$$\n')
                 if nepisodes == opt.eval_samples then 
                   logfile:write('#### end of eval period ####\n')
@@ -226,24 +228,26 @@ while step < opt.steps do
         agent.w, agent.dw, agent.g, agent.g2, agent.delta, agent.delta2,
             agent.deltas, agent.tmp, agent.obj_w,agent.obj_dw= nil, nil, nil, nil, nil, nil, nil, nil, nil, nil
 
-        local filename = opt.name
+        filename = opt.name
         if opt.save_versions > 0 then
             filename = filename .. "_" .. math.floor(step / opt.save_versions)
         end
         filename = filename  .. "_lr" .. agent.lr .."_" ..agent.n_actions.."a"
-        torch.save(filename ..".t7", {agent = agent,
-                                      model = agent.network,
-                                      model_AEN = agent.obj_network,
-                                      best_model = agent.best_network,
-                                      reward_history = reward_history,
-      	                              obj_loss_history = obj_loss_history,
-                                      reward_counts = reward_counts,
-                                      episode_counts = episode_counts,
-                                      time_history = time_history,
-                                      v_history = v_history,
-                                      td_history = td_history,
-                                      qmax_history = qmax_history,
-                                      arguments=opt})
+        agent_o = {agent = agent,
+                            model = agent.network,
+                            model_AEN = agent.obj_network,
+                            best_model = agent.best_network,
+                            reward_history = reward_history,
+                            obj_loss_history = obj_loss_history,
+                            reward_counts = reward_counts,
+                            episode_counts = episode_counts,
+                            time_history = time_history,
+                            v_history = v_history,
+                            td_history = td_history,
+                            qmax_history = qmax_history,
+                            arguments=opt
+                        }
+        torch.save(filename ..".t7", agent_o)
         if opt.saveNetworkParams then
             local nets = {network=w:clone():float()}
             torch.save(filename..'.params.t7', nets, 'ascii')
@@ -259,4 +263,4 @@ while step < opt.steps do
   end
 logfile:close()
 require 'plot'
-plotAgentFromSummary(summarizeAgent(filename,nil,agent))
+plotAgentFromSummary(summarizeAgent(filename,nil,agent_o))
