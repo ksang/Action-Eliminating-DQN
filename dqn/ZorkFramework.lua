@@ -179,6 +179,7 @@ function gameEnv:__init(_opt)
     if scenario < 5 then
       if scenario < 4 then
         self._terminal_string = "There is no obvious way to open the egg.\0"
+        self._inventory_rewards_target=1
       else -- scenario 4
         self._terminal_string = "Your sword is no longer glowing."
       end
@@ -236,11 +237,17 @@ function gameEnv:getState()
   return self._state.observation, self._state.reward, self._state.terminal -- frame,reward,terminal
 end
 
+function gameEnv:getCurrentStringState()
+  return self.state_string,self.inventory_string
+end
+
 function gameEnv:newGame()
   self.tot_inits = self.tot_inits+1
   --print("start new game number",self.tot_inits)
   local result_file_name = zork.zorkInit()
-  local result_string = read_file(result_file_name)
+  local result_string,inventory_text = read_file(result_file_name),read_file(zork.zorkInventory())
+  self.state_string=result_string
+  self.inventory_string=inventory_text
   self:_updateState({result_string},0,false)
   --uncomment to setup intermidiate rewards
   --[[
@@ -279,7 +286,8 @@ function gameEnv:step(action, training)
 
   -- read step result string
   local result_string,inventory_text = read_file(result_file_name),read_file(zork.zorkInventory())
-
+  self.state_string=result_string
+  self.inventory_string=inventory_text
     --this slows things down a bit but helps to get more information regarding possible
     --movement options
   if bad_command == 0 then
@@ -306,13 +314,15 @@ function gameEnv:step(action, training)
 
   -- check for goal state if defined
   if self._terminal_string and result_string:match(self._terminal_string) then
-    if self.scenario < 4  and self.goal_items_collected == #self._inventory_rewards or self.scenario >= 4 then
+    if (self.scenario < 4  and self.goal_items_collected == self._inventory_rewards_target)
+         or self.scenario >= 4 then
       terminal = true
       reward = reward + self.goal_reward -- give additional reward
       --FIXME use verbose > 2 here
-      if self.scenario > 3 and not training then
+      if --[[self.scenario > 3 and]] not training then
         print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves()
                 .. " steps ####", zork.zorkGetLives())
+        print(self.goal_items_collected)
       end
     end
   else
@@ -320,11 +330,13 @@ function gameEnv:step(action, training)
   table.foreach(self._additional_rewards,
     function(k,v)
       if result_string:match(k) then
-        reward = reward + v
-        self._additional_rewards[k]=0
-        if not training and v>0 then
-          print("@DEBUG: intermidiate goal state: " .. k
-                  .." reached in",zork.zorkGetNumMoves(),"steps")
+        if v>=0 then 
+          reward = reward + v
+          self._additional_rewards[k]=-1
+          if not training then
+            print("@DEBUG: intermidiate goal state: " .. k
+                    .." reached in",zork.zorkGetNumMoves(),"steps")
+          end
         end
       end
     end)
@@ -332,13 +344,16 @@ function gameEnv:step(action, training)
   table.foreach(self._inventory_rewards,
     function(k,v)
       if inventory_text:match(k) then
-        reward = reward + v
-        if self.scenario < 4  then self.goal_items_collected=self.goal_items_collected+1 end
-        self._inventory_rewards[k]=0
-        if not training and v>0 then
-          print("@DEBUG: intermidiate goal state: " .. k
-                 .." reached in",zork.zorkGetNumMoves(),"steps")
-        end
+        if v>=0 then 
+          reward = reward + v
+          self._inventory_rewards[k]=-1
+          if not training then
+            print("@DEBUG: inventory goal state: " .. k
+            .." reached in",zork.zorkGetNumMoves(),"steps")
+          end
+          if self.scenario < 4 then 
+            self.goal_items_collected=self.goal_items_collected+1 end
+          end
       end
     end)
   end
