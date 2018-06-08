@@ -1,4 +1,9 @@
 --- This file defines the class Game environment of a Toy MDP, meant for experimenting with kuz DQN implimentation in lua
+EGG_QUEST=1
+TROLL_QUEST=2
+FREE_RUN_QUEST=3
+
+
 local ZorkFramework = torch.class('ZorkFramework')
 print ("reading w2v file, wait")
 local w2vutils = require 'w2vutils'
@@ -8,7 +13,7 @@ tmpTable = {}
 local sentence_size = 65 -- 15 inventory + 50 for state description
 local reserved_for_inventory = 15
 local start_index = 1
---local cons = require 'pl.pretty'
+local cons = require 'pl.pretty'
 
 -- source:
 --[[this function reads a whole file and returns it as a stringToUpper
@@ -95,6 +100,38 @@ end
 local zork = require ('zork')
 -- The GameEnvironment class.
 local gameEnv = torch.class('ZorkFramework.GameEnvironment')
+-- quest setup aux functions
+function gameEnv:setTrollQuest()
+  self._terminal_string = "Almost as soon as the troll breathes his last,"
+  self._intermidiate_goal_target=1
+  self._quest=TROLL_QUEST
+end
+
+function gameEnv:setEggQuest()
+  self._terminal_string = "There is no obvious way to open the egg.\0"
+  self._inventory_rewards_target=1
+  self._quest=EGG_QUEST
+end
+
+function gameEnv:setFreeRunQuest()
+  self._terminal_string=nil
+  self._quest=FREE_RUN_QUEST
+end
+
+function gameEnv:completeQuestGoals()
+  local done=false
+  if self._quest == EGG_QUEST then
+    done= self.goal_items_collected == self._inventory_rewards_target
+  elseif self._quest == TROLL_QUEST then
+    done= self.intermidiate_goal == self.intermidiate_goal_target
+  elseif self._quest == FREE_RUN_QUEST then
+    done=true
+  else
+    assert(true,"invalid Quest ID")
+  end
+  return done
+end
+
 --@ screen: word to vec embedding of the current state in some fixed size buffer (zero padded or truncated)
 --@ reward: current score - step number
 --@ terminal: dead boolean flag
@@ -122,6 +159,7 @@ function gameEnv:__init(_opt)
     self.tot_steps = 0
     self.tot_inits = 0
     self:newGame()
+
     --creates object actions from an object list
     function genObjActionTable(obj_list)
       local act = {}
@@ -174,16 +212,14 @@ function gameEnv:__init(_opt)
     self._step_penalty = -1
     self._step_limit = 100
     self.goal_reward = 100
+    self._terminal_penalty=-100
     self._actions = basic_actions
     self._objects = basic_objects
     if scenario < 5 then
       if scenario < 4 then
-        self._terminal_string = "There is no obvious way to open the egg.\0"
-        self._inventory_rewards_target=1
-      else -- scenario 4
-        self._terminal_string = "Your sword is no longer glowing."
-      end
+        self:setEggQuest()
       --set objects and action spaces
+      end
       if scenario > 1 then
         -- extend to 20 objects
         self._objects = concatTable(self._objects,obj_ext1)
@@ -195,6 +231,7 @@ function gameEnv:__init(_opt)
           if scenario == 4 then --extended quest actions and intermidiate rewards
             --enable exteded quest with none object actions
             self._actions = concatTable(self._actions,action_ext1)
+            self:setTrollQuest()
           end
         end
       end
@@ -207,20 +244,20 @@ function gameEnv:__init(_opt)
       self._actions = genActions(tab)
       self._objects = self._actions
       if scenario == 5 then
-        self._terminal_string = "Your sword is no longer glowing."
+        self:setTrollQuest()
       elseif scenario == 6  then
         --no step penalty, no goal state
         self._step_penalty = 0
         self._step_limit = 200
-        self._terminal_string = nil --run wild
+        self:setFreeRunQuest()
       elseif scenario == 7 then
         self.scenario=3.5
-        self._terminal_string = "There is no obvious way to open the egg.\0"
+        self:setEggQuest()
       end
     end
 
-    --print("@DEBUG: action table")
-    --cons.dump(self._actions)
+    print("@DEBUG: action table")
+    cons.dump(self._actions)
     return self
 end
 
@@ -249,15 +286,17 @@ function gameEnv:newGame()
   self.state_string=result_string
   self.inventory_string=inventory_text
   self:_updateState({result_string},0,false)
-  --uncomment to setup intermidiate rewards
-  --[[
-  if self.scenario > 3 then
-    self._additional_rewards['There is no obvious way to open the egg.\0']=50
-    self._additional_rewards['The door crashes shut, and you hear someone barring it.\0']=20
+  if self._quest == TROLL_QUEST then
+    self._additional_rewards['The door crashes shut, and you hear someone barring it']=0
+    self.intermidiate_goal=0
+    local v=0
+    self._inventory_rewards['sword']=v
+    self._inventory_rewards['lamp']=v
+    self.goal_items_collected=0
   end
-  ]]
 
-  if self.scenario < 4 then
+
+  if self._quest == EGG_QUEST then
     self._inventory_rewards['egg']=0
     self.goal_items_collected=0
   end
@@ -299,68 +338,75 @@ function gameEnv:step(action, training)
       bad_command = 1
     end
   end
-
+  if result_string:match("I'm afraid that you are dead.") then
+    terminal = true
+  end
   current_score = zork.zorkGetScore()
   -- step penalty for bad parse and terminal signal
   if training then
-    terminal = previous_lives > zork.zorkGetLives() -- every time we lose life
-    bad_parse_penalty = -1*bad_command*self.bad_parse_penalty_scale
+    terminal = terminal or previous_lives > zork.zorkGetLives() -- every time we lose life
+    bad_parse_penalty = -1*bad_command*self.bad_parse_penalty_scale + (1-bad_command)*0.5
   else
-    terminal = zork.zorkGetLives() == 0 -- when evaluating agent only when no more lives
+    terminal = terminal or zork.zorkGetLives() <= 0 -- when evaluating agent only when no more lives
     bad_parse_penalty = 0
   end
   reward = current_score - previous_score + self._step_penalty + bad_parse_penalty
 
-
-  -- check for goal state if defined
-  if self._terminal_string and result_string:match(self._terminal_string) then
-    if (self.scenario < 4  and self.goal_items_collected == self._inventory_rewards_target)
-         or self.scenario >= 4 then
-      terminal = true
-      reward = reward + self.goal_reward -- give additional reward
-      --FIXME use verbose > 2 here
-      if --[[self.scenario > 3 and]] not training then
-        print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves()
-                .. " steps ####", zork.zorkGetLives())
-        print(self.goal_items_collected)
-      end
-    end
+  if terminal then
+    reward = reward + self._terminal_penalty
   else
-  --check for any of the secondary goal states
-  table.foreach(self._additional_rewards,
-    function(k,v)
-      if result_string:match(k) then
-        if v>=0 then 
-          reward = reward + v
-          self._additional_rewards[k]=-1
-          if not training then
-            print("@DEBUG: intermidiate goal state: " .. k
-                    .." reached in",zork.zorkGetNumMoves(),"steps")
-          end
+
+    if self:completeQuestGoals() then
+             -- check for goal state if defined
+      if self._terminal_string and result_string:match(self._terminal_string) then
+        terminal = true
+        reward = reward + self.goal_reward -- give additional reward
+        --FIXME use verbose > 2 here
+        if --[[self.scenario > 3 and]] not training then
+          print("@DEBUG: ####goal state reached in " .. zork.zorkGetNumMoves()
+                  .. " steps ####", zork.zorkGetLives())
         end
       end
-    end)
-  --check for inventory items
-  table.foreach(self._inventory_rewards,
-    function(k,v)
-      if inventory_text:match(k) then
-        if v>=0 then 
-          reward = reward + v
-          self._inventory_rewards[k]=-1
-          if not training then
-            print("@DEBUG: inventory goal state: " .. k
-            .." reached in",zork.zorkGetNumMoves(),"steps")
+    end
+   --check for any of the secondary goal states
+    table.foreach(self._additional_rewards,
+      function(k,v)
+        if result_string:match(k) then
+          if v>=0 then
+            reward = reward + v
+            self._additional_rewards[k]=-1
+            if not training then
+              print("@DEBUG: intermidiate goal state: " .. k.. " reached in",zork.zorkGetNumMoves(),"steps")
+            end
+            if self._quest == TROLL_QUEST then
+              self.intermidiate_goal=self.intermidiate_goal+1
+            end
           end
-          if self.scenario < 4 then 
-            self.goal_items_collected=self.goal_items_collected+1 end
+        end
+      end)
+
+    --check for inventory items
+    table.foreach(self._inventory_rewards,
+      function(k,v)
+        if inventory_text:match(k) then
+          if v>=0 then
+            reward = reward + v
+            self._inventory_rewards[k]=-1
+            if not training then
+              print("@DEBUG: inventory goal state: " .. k
+              .." reached in",zork.zorkGetNumMoves(),"steps")
+            end
+            if self._quest == EGG_QUEST then
+              self.goal_items_collected=self.goal_items_collected+1
+            end
           end
-      end
-    end)
-  end
-  -- early termination
-  if zork.zorkGetNumMoves() > self._step_limit - 1 then
-    terminal = true
-  end
+        end
+      end )
+    -- early termination
+    if zork.zorkGetNumMoves() > self._step_limit - 1 then
+      terminal = true
+    end
+end
 
 --[[
     if terminal then print("terminated after",zork.zorkGetNumMoves(),"steps")
