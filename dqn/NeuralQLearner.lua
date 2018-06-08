@@ -41,6 +41,7 @@ function nql:__init(args)
     assert(self.obj_max <= self.n_objects and self.obj_max >= -1)
     self.parse_lable_scale = args.parse_lable_scale or 1
     self.double_elimination = args.double_elimination or 0
+    self.doubleQ = args.doubleQ or 0
     self.AEN_n_filters = args.AEN_n_filters or 20
     self.shallow_exploration_flag = args.shallow_exploration_flag or 0
     self.shallow_elimination_flag = args.shallow_elimination_flag or 0
@@ -54,7 +55,7 @@ function nql:__init(args)
       self.A_init:copy(torch.eye(self.n_features):mul(self.lambda):reshape(1,self.n_features,self.n_features):expand(self.n_objects,self.n_features,self.n_features))
       self.val_conf_buf = torch.CudaTensor(4,EVAL_STEPS)
     end
-    
+
     self.objects_range=torch.range(1,self.n_objects):cudaInt()
     self.actions_range=torch.range(1,self.n_actions):cudaInt()
 
@@ -311,11 +312,12 @@ function nql:getQUpdate(args)
     end
     --print(s2:size())
     -- Compute max_a Q(s_2, a).
+    local batch_size = s2:size()[1]
     local q2 = target_q_net:forward(s2):float()
     local q2_max-- = torch.FloatTensor((#q2)[1])
+    local elimination_mask = nil
     if self.agent_tweak ~= VANILA and self.double_elimination == 1 and self.numSteps > self.obj_start then
       --output is a batch_sizeXn_objects needs to turn to batch_sizeXn_actions via elimination mask
-      local batch_size = s2:size()[1]
       local AEN_prediction,uncertainty_bias-- =torch.CudaTensor(batch_size,self.n_objects)
       if self.shallow_elimination_flag == 1 then
       --[[  for i=1,batch_size do --for each sample in batch
@@ -331,7 +333,6 @@ function nql:getQUpdate(args)
 
       local AEN_hard_prediction = AEN_prediction:ge(self.object_restrict_thresh):byte()
 
-      local elimination_mask = nil
       if self.n_actions~=self.n_objects then
         elimination_mask = torch.ByteTensor(batch_size,self.n_actions-self.n_objects):zero() --non-AEN actions are always vavlid set signal to 0
         elimination_mask = elimination_mask:cat(AEN_hard_prediction) --we always assume AEN actions have the higher index range
@@ -340,8 +341,22 @@ function nql:getQUpdate(args)
       end
       q2[elimination_mask]=-1/0
     end
-    q2_max = q2:max(2)
 
+    if self.doubleQ == 1 then
+      online_q = self.network:forward(s2):float()
+      if elimination_mask then
+        online_q[elimination_mask]=-1/0
+      end
+      local act_index_mat = self.actions_range:reshape(1,self.n_actions):expand(batch_size,self.n_actions):int()
+      --find the actions indecies that maximize online_q for the current batch a*=argmax_a{online_q(s2,a)}
+      local _,online_q_max_ind = online_q:max(2)
+      --extract the target_Q values for those actions Q_target(s2,a*)
+      local max_ind_to_read_from_q2 =  online_q_max_ind:reshape(batch_size,1):expand(batch_size,self.n_actions):int():eq(act_index_mat)
+      q2_max = q2[max_ind_to_read_from_q2]
+      assert(q2_max)
+    else
+      q2_max = q2:max(2)
+    end
     -- Compute q2 = (1-terminal) * gamma * max_a Q(s2, a)
     local q2_gamma = q2_max:clone():mul(self.discount):cmul(term)
 
@@ -467,7 +482,7 @@ function nql:objLearnMiniBatch(s,a,a_o,bad_command)
         local J = self.objNetLoss:forward(h_x, self.Y_buff)/self.parse_lable_scale
         --print("@DEBUG loss calculated "..J, "\npredictions = \n","actual labels= \n",h_x,self.Y_buff) -- just for debugging purpose
 	    --zero out none informative gradients
-	    local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image:float():cuda())
+	      local dJ_dh_x = torch.cmul(self.objNetLoss:backward(h_x, self.Y_buff),grad_image)
         --print ("after cmul",dJ_dh_x)
 	    --local dJ_dh_x = self.objNetLoss:backward(h_x, self.Y_buff)--:cuda()
         self.obj_network:backward(s, dJ_dh_x) -- computes and updates gradTheta
@@ -516,11 +531,11 @@ function nql:compute_validation_statistics()
       local J = self.objNetLoss:forward(h_x, self.valid_Y_buff)/self.parse_lable_scale
       local h_y = h_x:gt(self.object_restrict_thresh) -- calculate prediction
       local aen_mean,aen_std,sp_mean,sp_std = nil,nil,nil,nil
-      if self.numSteps > self.obj_start then 
-        local eliminated = h_y:float():cuda():sum(2)
+      if self.numSteps > self.obj_start then
+        local eliminated = h_y:float():sum(2)
         aen_mean,aen_std = eliminated:mean(),eliminated:std()
         print("actions elimination avg/std: " ,aen_mean,aen_std )
-        if self.shallow_elimination_flag == 1 then 
+        if self.shallow_elimination_flag == 1 then
             local shallow_pred,uncertainty_bias = self:batchAdaptiveElimination(self.valid_s_for_obj)
             shallow_pred = (shallow_pred - uncertainty_bias):gt(self.object_restrict_thresh):cuda()
             local fn_count = (shallow_pred -self.valid_Y_buff):eq(1):sum()
@@ -533,20 +548,36 @@ function nql:compute_validation_statistics()
       --local p,of =  shallow_elimination TODO test how well shallow elimination is doing
       local sum = 0
       local false_neg = 0
+      local false_neg_objects = {}
       for i=1,self.valid_size do
-          local object_index = self.valid_a_o[i]
-          if h_y[i][object_index] == self.valid_bad_command[i] then
-            sum = sum + 1
-          else
-            if self.valid_bad_command[i] == 0 then
-              false_neg = false_neg + 1
+        local object_index = self.valid_a_o[i]
+        if h_y[i][object_index] == self.valid_bad_command[i] then
+          sum = sum + 1
+        else
+          if self.valid_bad_command[i] == 0 then
+            false_neg = false_neg + 1
+            if not table.foreach(false_neg_objects, function (k,v)
+              if k == object_index then
+                false_neg_objects[k]=v+1
+                return true end
+              return false end)
+              then
+              false_neg_objects[object_index]=1
             end
           end
-      end
+        end --else
+      end --for
       --print("predicted lables vs validation sample\n",torch.cat(h_y:float(),self.valid_Y_buff:float()))
       local single_lable_acc = sum/self.valid_size
       print("object net accuracy",single_lable_acc)
       print("obj net reports ".. false_neg .. " false negetives")
+      --local temp_t={}
+      if self.verbose > 1 then table.foreach(false_neg_objects,
+        function (k,v)
+          --table.insert(temp_t,self.objects[k])
+          print(self.objects[k] .. " ID " .. k .. " was false-negetives " .. v .. " times")
+        end)
+      end
       print("object net validation loss", J)
       self.last_object_net_accuracy = single_lable_acc
       return {AEN_loss=J, AEN_single_accuracy=single_lable_acc,AEN_fn_count=false_neg,
@@ -583,14 +614,13 @@ function nql:perceive(reward, rawstate, terminal, testing, testing_ep)
                              self.lastTerminal, self.lastAction_o or 0, self.lastAction_bad)
     end
 
-    if not testing and ( 
+    if not testing and (
           self.numSteps == self.learn_start or (
-            self.numSteps%(self.replay_memory/4) == 0 and 
-            self.numSteps <= self.replay_memory and 
+            self.numSteps%(self.replay_memory/2) == 0  and
             self.numSteps > self.learn_start
-          ) 
+          )
         ) then
-        --sample validation data twice, initially when learning starts and again when we fill the entire replay memory
+        --sample validation data 4 times, last sample when we fill the entire replay memory
 	      self:sample_validation_data()
     end
 
@@ -686,7 +716,7 @@ function nql:eGreedy(state, testing,testing_ep)
       if prediction and self.agent_tweak ~= GREEDY then --restricted random action selection, else use standard exploration
         a_o = self.actions[actionIndex].object or 0	-- extract relevant object
         if a_o ~= 0 then --only for "take" actions use prediction to validate action
-          if uncertainty_bias and self.shallow_exploration_flag == 1 then 
+          if uncertainty_bias and self.shallow_exploration_flag == 1 then
             --shallow elimination exploration scheme aims at improving AEN confidence
             actionIndex = torch.multinomial(self.softmax:forward(uncertainty_bias:gt(self.object_restrict_thresh/2):cudaByte():cuda()),1):squeeze() + self.n_actions - self.n_objects
           else --naive exploration - will only follow AEN prediction
@@ -704,12 +734,12 @@ function nql:eGreedy(state, testing,testing_ep)
 
       return actionIndex
     else --use greedy agent policy and pass along the raw prediction for this state
-        return self:greedy(state,prediction,hard_prediction)
+        return self:greedy(state,prediction,hard_prediction,testing)
     end
 --#########################################
 end
 
-function nql:greedy(state,obj_net_prediction,obj_hard_pred)
+function nql:greedy(state,obj_net_prediction,obj_hard_pred,testing)
     local q = self.network:forward(state):squeeze()
 --#########################################
     --greedy action restriction segment
@@ -751,12 +781,19 @@ function nql:greedy(state,obj_net_prediction,obj_hard_pred)
         end
         q[elimination_mask:cudaByte()]=-1/0
     end
-    
+
     besta=self.actions_range[q:eq(q:max())]:totable()
     maxq=q[besta[1]]
+    if best_objects and testing and self.verbose > 2 then
+      --[[local obj_mat_ind = self.objects_range:reshape(1,self.n_objects):expand(best_objects:size(1),self.n_objects)
+      local best_obj_mat_ind = best_objects:reshape(best_objects:size(1),1):expand(best_objects:size(1),self.n_objects)
+      self.objects[obj_mat_ind:eq(best_obj_mat_ind):sum(1):ge(1)] ]]
+      local str="best objects are:"
+      table.foreach(best_objects:totable(),function(k,v) str=str..' ' .. self.objects[v] end)
+      print(str)
+    end
   --#########################################
     self.bestq = maxq
-
     local r = torch.random(1, #besta)
 
     self.lastAction = besta[r]
@@ -841,8 +878,8 @@ function nql:elimination_update()
   self.obj_target_network    =  self.obj_network:clone()
   --assume AEN last layer has an activation function
   --we use the linear features of the last layer
-  self.obj_target_network:remove(self.obj_target_network:size()) 
-  local no_activation_network_size = self.obj_target_network:size() 
+  self.obj_target_network:remove(self.obj_target_network:size())
+  local no_activation_network_size = self.obj_target_network:size()
   self.obj_target_network:evaluate()
   --local PHI = torch.CudaTensor(n_actions,n_features):zero()
   --local THETA = torch.CudaTensor(n_actions,n_features):zero()
