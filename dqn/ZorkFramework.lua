@@ -170,10 +170,12 @@ function gameEnv:__init(_opt)
 
     function genActions(action_string_table)
       local act = {}
+      local obj = {}
       --FIXME here we assign all actions with an object index regardless of the actual object,
       -- this is a hack to avoid changing the code to run AEN on all actions
-      table.foreach(action_string_table,function(k,v) table.insert(act,{action=v,object = k}) end)
-      return act
+      table.foreach(action_string_table,function(k,v) table.insert(act,{action=v,object = k})
+      table.insert(obj,v) end)
+      return act,obj
     end
 
     function concatTable(src1,src2)
@@ -212,7 +214,7 @@ function gameEnv:__init(_opt)
     self._step_penalty = -1
     self._step_limit = 100
     self.goal_reward = 100
-    self._terminal_penalty=-100
+    self._terminal_penalty=-50
     self._actions = basic_actions
     self._objects = basic_objects
     if scenario < 5 then
@@ -241,8 +243,8 @@ function gameEnv:__init(_opt)
       --define actions from file
       local action_strings = read_file('action_strings.txt')
       local tab = split(action_strings,'[^\r\n]+')
-      self._actions = genActions(tab)
-      self._objects = self._actions
+      self._actions,self._objects = genActions(tab)
+
       if scenario == 5 then
         self:setTrollQuest()
       elseif scenario == 6  then
